@@ -1,0 +1,12 @@
+# Template file for 'steamguard-cli'
+pkgname=steamguard-cli
+version=0.7.0
+revision=1
+build_style=cargo
+hostmakedepends="pkg-config"
+short_desc="Utility for Steam 2FA and for managing trade confirmations"
+maintainer="Filip Rojek <filip@filiprojek.cz>"
+license="GPL-3.0-only"
+homepage="https://github.com/dyc3/steamguard-cli"
+distfiles="https://github.com/dyc3/steamguard-cli/archive/v${version}/steamguard-cli-${version}.tar.gz"
+checksum=fae8e6b842443c544ee32a4f46bdf49280aa81cb8c443aa45e4c012b9bcef848
