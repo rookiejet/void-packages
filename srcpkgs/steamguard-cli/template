@@ -1,6 +1,6 @@
 # Template file for 'steamguard-cli'
 pkgname=steamguard-cli
-version=0.10.2
+version=0.11.0
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config"
@@ -9,4 +9,4 @@ maintainer="Filip Rojek <filip@filiprojek.cz>"
 license="GPL-3.0-only"
 homepage="https://github.com/dyc3/steamguard-cli"
 distfiles="https://github.com/dyc3/steamguard-cli/archive/v${version}/steamguard-cli-${version}.tar.gz"
-checksum=cc82cc5619595d539170632557e06b52496355385f72b50094dd6d16fb262631
+checksum=602e6001ca597e36625134423c93f452a302e005714027e29b0dd4cc464b895d
