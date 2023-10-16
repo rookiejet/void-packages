@@ -1,0 +1,68 @@
+# Template file for 'abaddon'
+pkgname=abaddon
+version=0.2.4
+revision=1
+_ixwebsocket_commit="bc765e73a31ea5372e36d1b1add036af3218cb17"
+_keychain_commit="8846e78a1ea72a06a5da17b7f3493dd1c76c0a88"
+_dave_commit="52cd56dc550f447fb354b3a06c9e2d2e2a4309c6"
+_miniaudio_commit="9634bedb5b5a2ca38c1ee7108a9358a4e233f14d"
+_mlspp_commit="1cc50a124a3bc4e143a787ec934280dc70c1034d"
+_qrcodegen_commit="22fac31bdf81da68730c177c0e931c93234d2a30"
+build_style=cmake
+hostmakedepends="pkg-config"
+makedepends="gtkmm-devel libcurl-devel sqlite-devel openssl-devel
+ json-c++ libsecret-devel libhandy1-devel opus-devel spdlog
+ libsodium-devel rnnoise-devel"
+depends="desktop-file-utils"
+short_desc="Alternative Discord client with voice support made with C++ and GTK3"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://github.com/uowuo/abaddon"
+distfiles="https://github.com/uowuo/abaddon/archive/refs/tags/v${version}.tar.gz
+ https://github.com/machinezone/IXWebSocket/archive/${_ixwebsocket_commit}.tar.gz
+ https://github.com/hrantzsch/keychain/archive/${_keychain_commit}.tar.gz
+ https://github.com/mackron/miniaudio/archive/${_miniaudio_commit}.tar.gz
+ https://github.com/cisco/mlspp/archive/${_mlspp_commit}.tar.gz
+ https://github.com/nayuki/QR-Code-generator/archive/${_qrcodegen_commit}.tar.gz
+ https://github.com/discord/libdave/archive/${_dave_commit}.tar.gz"
+checksum="68cb3ca04eaf26dccf7d7750a65df8cf23819c9d501b25808a364b2915c360cf
+ 9dea909d05e882a540526b15fbdc9764a39deb53810eb86ad797fd8135a02275
+ 65a405ad92568ded0069a9959a7676ff48a66acbbe58cba0a022e91014b25f34
+ 1a3a79b80fc6f0b0cc155e28b954a598e0ddfa2db64e2afa8466be88c476fa55
+ 7a9d6318627e548903bc65c3dc5a4de4a90290983efea9a49af8561ed3f999f5
+ 218e3e96ded7880d05f47c668aad6541a08e63303ac4d783720389087da6f4ed
+ 3564e0d26fa143bbbd0659bd92b50fb89db2a9f17e0e8edb95d5861b046f8ffd"
+skip_extraction="
+ ${_ixwebsocket_commit}.tar.gz
+ ${_keychain_commit}.tar.gz
+ ${_miniaudio_commit}.tar.gz
+ ${_mlspp_commit}.tar.gz
+ ${_qrcodegen_commit}.tar.gz
+ ${_dave_commit}.tar.gz
+ "
+
+post_extract() {
+	vsrcextract -C subprojects/ixwebsocket ${_ixwebsocket_commit}.tar.gz
+	vsrcextract -C subprojects/keychain ${_keychain_commit}.tar.gz
+	vsrcextract -C subprojects/miniaudio ${_miniaudio_commit}.tar.gz
+	vsrcextract -C subprojects/mlspp ${_mlspp_commit}.tar.gz
+	vsrcextract -C subprojects/qrcodegen ${_qrcodegen_commit}.tar.gz
+	vsrcextract -C subprojects/libdave ${_dave_commit}.tar.gz
+}
+
+do_install() {
+	vmkdir usr/bin
+	vmkdir usr/share/abaddon
+	vcopy build/abaddon usr/bin
+	vcopy res/css usr/share/abaddon
+	vcopy res/res usr/share/abaddon
+
+	vdoc README.md
+
+	vinstall res/desktop/io.github.uowuo.abaddon.desktop 644 \
+	 usr/share/applications
+	vinstall res/desktop/io.github.uowuo.abaddon.metainfo.xml 644 \
+	 usr/share/metainfo
+	vinstall res/desktop/icon.svg 644 usr/share/icons/hicolor/scalable/apps \
+	 io.github.uowuo.abaddon.svg
+}
