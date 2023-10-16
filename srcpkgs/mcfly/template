@@ -1,0 +1,22 @@
+# Template file for 'mcfly'
+pkgname=mcfly
+version=0.9.3
+revision=1
+build_style=cargo
+makedepends="sqlite-devel"
+short_desc="Intelligent search engine for your shell history"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/cantino/mcfly"
+distfiles="https://github.com/cantino/mcfly/archive/refs/tags/v${version}.tar.gz"
+checksum=194383276095b71dd6d085fb959ba7981384cbe09776fd5f182e95bbed5a3a13
+
+post_install() {
+	for shell in bash zsh; do
+		vinstall mcfly.${shell} 644 usr/share/mcfly
+	done
+	vinstall mcfly.fish 644 usr/share/fish/vendor_conf.d
+
+	vdoc README.md
+	vlicense LICENSE
+}
