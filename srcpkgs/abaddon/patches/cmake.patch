@@ -1,0 +1,14 @@
+fix cross-build
+
+--- a/CMakeLists.txt	2026-04-06 00:00:00.000000000 -0400
++++ b/CMakeLists.txt	2026-04-06 00:00:00.000000000 -0400
+@@ -259,7 +259,8 @@
+             NAMES miniaudio.h
+             HINTS subprojects
+             PATH_SUFFIXES miniaudio
+-            REQUIRED)
++            REQUIRED
++    NO_CMAKE_FIND_ROOT_PATH)
+ 
+     target_include_directories(abaddon PUBLIC ${MINIAUDIO_INCLUDE_DIR})
+     target_compile_definitions(abaddon PRIVATE WITH_MINIAUDIO)
