@@ -1,0 +1,54 @@
+# Template file for 'abaddon'
+pkgname=abaddon
+version=0.2.2
+revision=1
+_ixwebsocket_commit="bc765e73a31ea5372e36d1b1add036af3218cb17"
+_keychain_commit="8846e78a1ea72a06a5da17b7f3493dd1c76c0a88"
+_miniaudio_commit="350784a9467a79d0fa65802132668e5afbcf3777"
+_qrcodegen_commit="22fac31bdf81da68730c177c0e931c93234d2a30"
+build_style=cmake
+hostmakedepends="pkg-config"
+makedepends="gtkmm-devel libcurl-devel sqlite-devel openssl-devel
+ json-c++ libsecret-devel libhandy1-devel opus-devel spdlog
+ libsodium-devel rnnoise-devel"
+depends="desktop-file-utils"
+short_desc="Alternative Discord client with voice support made with C++ and GTK3"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://github.com/uowuo/abaddon"
+distfiles="https://github.com/uowuo/abaddon/archive/refs/tags/v${version}.tar.gz
+ https://github.com/machinezone/IXWebSocket/archive/${_ixwebsocket_commit}.tar.gz
+ https://github.com/hrantzsch/keychain/archive/${_keychain_commit}.tar.gz
+ https://github.com/mackron/miniaudio/archive/${_miniaudio_commit}.tar.gz
+ https://github.com/nayuki/QR-Code-generator/archive/${_qrcodegen_commit}.tar.gz"
+checksum="a858fca424468a304e3cfc30be9b9982f3fbf078a897cb19a36a0da77fa02d41
+ 9dea909d05e882a540526b15fbdc9764a39deb53810eb86ad797fd8135a02275
+ 65a405ad92568ded0069a9959a7676ff48a66acbbe58cba0a022e91014b25f34
+ 28ab6d0d39c32a46d57b52d104046e8b3637bfc51d8bab07ec5ae5415dc8ee52
+ 218e3e96ded7880d05f47c668aad6541a08e63303ac4d783720389087da6f4ed"
+skip_extraction="
+ ${_ixwebsocket_commit}.tar.gz
+ ${_keychain_commit}.tar.gz
+ ${_miniaudio_commit}.tar.gz
+ ${_qrcodegen_commit}.tar.gz
+ "
+
+post_extract() {
+	vsrcextract -C subprojects/ixwebsocket ${_ixwebsocket_commit}.tar.gz
+	vsrcextract -C subprojects/keychain ${_keychain_commit}.tar.gz
+	vsrcextract -C subprojects/miniaudio ${_miniaudio_commit}.tar.gz
+	vsrcextract -C subprojects/qrcodegen ${_qrcodegen_commit}.tar.gz
+}
+
+do_install() {
+	vmkdir usr/bin
+	vmkdir usr/share/abaddon
+	vmkdir usr/share/applications
+	vcopy build/abaddon usr/bin
+	vcopy res/css usr/share/abaddon
+	vcopy res/res usr/share/abaddon
+
+	vdoc README.md
+
+	vinstall "${FILESDIR}/abaddon.desktop" 644 usr/share/applications
+}
