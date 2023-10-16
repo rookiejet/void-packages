@@ -1,0 +1,20 @@
+# Template file for 'mcfly'
+pkgname=mcfly
+version=0.8.4
+revision=1
+build_style=cargo
+short_desc="Intelligent search engine for your shell history"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="MIT"
+homepage="https://github.com/cantino/mcfly"
+distfiles="https://github.com/cantino/mcfly/archive/refs/tags/v${version}.tar.gz"
+checksum=637f50756366604d4d19a6f623cfd490c38e1b971708ec8ccdb39887a0e9c1f1
+
+post_install() {
+	for shell in bash fish zsh; do
+		vcompletion mcfly.${shell} ${shell}
+	done
+
+	vdoc README.md
+	vlicense LICENSE
+}
