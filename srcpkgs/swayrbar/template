@@ -1,0 +1,18 @@
+# Template file for 'swayrbar'
+pkgname=swayrbar
+version=0.3.7
+revision=1
+build_style=cargo
+configure_args="--package swayrbar"
+short_desc="Status command for sway's swaybar"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="GPL-3.0-or-later"
+homepage="https://git.sr.ht/~tsdh/swayr"
+distfiles="https://git.sr.ht/~tsdh/swayr/archive/swayrbar-${version}.tar.gz"
+checksum=e224b8112e03c4262c8f0459390d861b069645cf32f9bc0d230b71d5b01872d2
+
+do_install() {
+	vbin target/${RUST_TARGET}/release/swayrbar
+
+	vdoc README.md
+}
