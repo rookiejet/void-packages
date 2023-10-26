@@ -1,0 +1,27 @@
+# Template file for 'yazi'
+pkgname=yazi
+version=0.1.5
+revision=1
+build_style=cargo
+make_install_args="--path app"
+hostmakedepends="pkg-config"
+makedepends="oniguruma-devel lua52-devel"
+depends="nerd-fonts-symbols-ttf"
+short_desc="Blazing fast terminal file manager"
+maintainer="Bnyro <bnyro@tutanota.com>"
+license="MIT"
+homepage="https://yazi-rs.github.io"
+distfiles="https://github.com/sxyazi/yazi/archive/refs/tags/v${version}.tar.gz"
+checksum=cfaf32fe58f68b7532f33b2a60e9507939ee54e32164db051357e059c553afec
+
+post_patch() {
+	# we can't use luajit52 because it's not in the repos
+	vsed -i "s/luajit52/lua52/" plugin/Cargo.toml
+}
+
+post_install() {
+	vcompletion config/completions/yazi.bash bash
+	vcompletion config/completions/yazi.fish fish
+	vcompletion config/completions/_yazi zsh
+	vlicense LICENSE
+}
