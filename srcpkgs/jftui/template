@@ -1,0 +1,23 @@
+# Template file for 'jftui'
+pkgname=jftui
+version=0.7.4
+revision=1
+build_style=gnu-makefile
+hostmakedepends="pkg-config"
+makedepends="libcurl-devel mpv-devel yajl-devel peg"
+depends="libcurl mpv yajl"
+short_desc="Jellyfin Terminal User Interface"
+maintainer="rookiejet <void@illumed.net>"
+license="Unlicense"
+homepage="https://github.com/Aanok/jftui"
+distfiles="https://github.com/Aanok/jftui/archive/v${version}.tar.gz"
+checksum=c24dd3b25a69015d9652c0cceda4d94088af8e818f6f6e9b8d4b86ef82b8097a
+
+pre_configure() {
+	vsed -e 's/\s-march=native//' -i Makefile
+}
+
+post_install() {
+	vdoc README.md
+	vlicense LICENSE
+}
