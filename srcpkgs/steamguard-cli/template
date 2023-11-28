@@ -3,6 +3,7 @@ pkgname=steamguard-cli
 version=0.12.3
 revision=1
 build_style=cargo
+build_helper=qemu
 hostmakedepends="pkg-config"
 short_desc="Utility for Steam 2FA and for managing trade confirmations"
 maintainer="Filip Rojek <filip@filiprojek.cz>"
@@ -10,3 +11,12 @@ license="GPL-3.0-only"
 homepage="https://github.com/dyc3/steamguard-cli"
 distfiles="https://github.com/dyc3/steamguard-cli/archive/v${version}/steamguard-cli-${version}.tar.gz"
 checksum=ab61be79e595611d39558af38f3708c9212de687c68ec314e683faeca8bfb3e3
+_completions="bash zsh fish"
+
+post_install() {
+	local bin=${DESTDIR}/usr/bin/steamguard
+	for shell in ${_completions}; do
+		vtargetrun ${bin} completion --shell ${shell} > completion.${shell}
+		vcompletion completion.${shell} ${shell} steamguard
+	done
+}
