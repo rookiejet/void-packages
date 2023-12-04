@@ -1,0 +1,17 @@
+# Template file for 'jaq'
+pkgname=jaq
+version=1.2.0
+revision=1
+build_style=cargo
+make_install_args="--path jaq"
+short_desc="A jq clone focussed on correctness, speed, and simplicity"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="MIT"
+homepage="https://github.com/01mf02/jaq"
+distfiles="https://github.com/01mf02/jaq/archive/refs/tags/v${version}.tar.gz"
+checksum=3895dda6c808d93353bdcf3d265613c2c2fcdbbb20b1177bda8bb95fc0078277
+
+post_install() {
+	vdoc README.md
+	vlicense LICENSE-MIT
+}
