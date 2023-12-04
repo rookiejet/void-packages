@@ -1,0 +1,54 @@
+# Template file for 'rage'
+pkgname=rage
+version=0.9.2
+revision=1
+build_style=cargo
+build_helper=qemu
+short_desc="Rust implementation of the age encryption tool"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="Apache-2.0, MIT"
+homepage="https://github.com/str4d/rage"
+distfiles="https://github.com/str4d/rage/archive/refs/tags/v${version}.tar.gz"
+checksum=3bd287372eb6226b246459c1b5c39ecdb36b3495d7af4d2bee93bb3aad9ccf65
+_completions="bash fish zsh"
+
+build_options="mount"
+desc_option_mount="Build rage-mount command for mounting age encrypted volumes"
+
+if [ "$build_option_mount" ]; then
+	configure_args+=" --features mount"
+	hostmakedepends+=" pkg-config"
+	makedepends+=" bzip2-devel fuse3-devel"
+	depends+=" bzip2 fuse3"
+fi
+
+post_build() {
+	cargo auditable build --release --locked --target ${RUST_TARGET} --example generate-completions
+	cargo auditable build --release --locked --target ${RUST_TARGET} --example generate-docs
+	vtargetrun target/${RUST_TARGET}/release/examples/generate-completions
+	vtargetrun target/${RUST_TARGET}/release/examples/generate-docs
+}
+
+do_install() {
+	if [ "$build_option_mount" ]; then
+		vbin target/${RUST_TARGET}/release/rage-mount
+		for shell in $_completions; do
+			vcompletion target/completions/rage-mount.${shell} ${shell} rage-mount
+		done
+		vman target/manpages/rage-mount.1.gz
+	fi
+
+	vbin target/${RUST_TARGET}/release/rage
+	vbin target/${RUST_TARGET}/release/rage-keygen
+
+	for shell in $_completions; do
+		vcompletion target/completions/rage.${shell} ${shell} rage
+		vcompletion target/completions/rage-keygen.${shell} ${shell} rage-keygen
+	done
+
+	vman target/manpages/rage.1.gz
+	vman target/manpages/rage-keygen.1.gz
+
+	vlicense LICENSE-APACHE
+	vlicense LICENSE-MIT
+}
