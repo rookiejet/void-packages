@@ -1,0 +1,40 @@
+# Template file for 'meli'
+pkgname=meli
+version=0.8.5rc3
+revision=1
+archs="~*-musl"
+build_style=cargo
+configure_args="--no-default-features
+	--features sqlite3,smtp,jmap,text-processing,cli-docs,static
+	$(vopt_if notmuch '--features notmuch')
+	$(vopt_if gpg '--features gpgme')
+	$(vopt_if notifications '--features dbus-notifications')"
+make_install_args="--path meli"
+hostmakedepends="pkg-config mdocml"
+makedepends="openssl-devel"
+depends="$(vopt_if gpg 'libgpgme')
+	$(vopt_if notmuch 'libnotmuch')
+	m4"
+short_desc="Terminal email client with support for multiple accounts and maildir"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="GPL-3.0-or-later"
+homepage="https://meli.delivery/"
+distfiles="https://git.meliemail.org/meli/meli/archive/v0.8.5-rc.3.tar.gz"
+checksum=5e405d9651ad8c2c39243982b10d3ee0191eda67a3884d5713f245f105ef1b02
+
+build_options="gpg notmuch notifications"
+build_options_default="gpg notmuch notifications"
+desc_option_gpg="Enable gpg support via libgpgme"
+desc_option_notmuch="Enable support for using notmuch as a mail backend"
+desc_option_notifications="Build support for showing notifications using dbus"
+
+post_install() {
+	vman meli/docs/meli.1
+	vman meli/docs/meli.7
+	vman meli/docs/meli.conf.5
+	vman meli/docs/meli-themes.5
+
+	vdoc meli/docs/external-tools.md
+
+	vcopy meli/docs/samples usr/share/meli
+}
