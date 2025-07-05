@@ -1,0 +1,19 @@
+# Template file for 'caddy'
+pkgname=mpd-mpris
+version=0.4.1
+revision=1
+build_style=go
+go_import_path=github.com/natsukagami/mpd-mpris
+go_package="${go_import_path}/cmd/mpd-mpris"
+hostmakedepends="go"
+short_desc="An implementation of the MPRIS protocol for MPD"
+maintainer="Mazin Fadl <mazen@illumed.net>"
+license="MIT"
+homepage="https://github.com/natsukagami/mpd-mpris"
+changelog="https://github.com/natsukagami/mpd-mpris/releases"
+distfiles="https://github.com/natsukagami/mpd-mpris/archive/refs/tags/v${version}.tar.gz"
+checksum=85d33ab66e8bda50270cc5d3e3701a333542e931a17f7d3116a902b8f82818d0
+
+post_install() {
+    vlicense LICENSE
+}
