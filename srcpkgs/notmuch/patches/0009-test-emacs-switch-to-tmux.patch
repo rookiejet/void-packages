@@ -1,0 +1,25 @@
+diff --git a/test/test-lib-emacs.sh b/test/test-lib-emacs.sh
+index 0ab58fc2..068dae16 100644
+--- a/test/test-lib-emacs.sh
++++ b/test/test-lib-emacs.sh
+@@ -18,7 +18,7 @@ test_require_emacs () {
+     local ret=0
+     test_require_external_prereq "$TEST_EMACS" || ret=1
+     test_require_external_prereq "$TEST_EMACSCLIENT" || ret=1
+-    test_require_external_prereq dtach || ret=1
++    test_require_external_prereq tmux || ret=1
+     return $ret
+ }
+ 
+@@ -187,10 +187,7 @@ test_emacs () {
+ 		fi
+ 		server_name="notmuch-test-suite-$$"
+ 		# start a detached session with an emacs server
+-		# user's TERM (or 'vt100' in case user's TERM is known dumb
+-		# or unknown) is given to dtach which assumes a minimally
+-		# VT100-compatible terminal -- and emacs inherits that
+-		TERM=$SMART_TERM dtach -n "$TEST_TMPDIR/emacs-dtach-socket.$$" \
++		TERM=$SMART_TERM tmux new-session -d -s emacs-session-"$$" \
+ 			sh -c "stty rows 24 cols 80; exec '$TMP_DIRECTORY/run_emacs' \
+ 				--no-window-system \
+ 				$load_emacs_tests \
