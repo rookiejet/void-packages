@@ -11,10 +11,10 @@ hostmakedepends="perl pkg-config python3-Sphinx python3-devel texinfo
  desktop-file-utils emacs gnupg python3-setuptools python3-cffi
  python3-build python3-installer doxygen ruby-devel"
 makedepends="bash-completion gmime3-devel talloc-devel xapian-core-devel
- python3-cffi ruby-devel"
+ python3-cffi ruby-devel sfsexp-devel"
 depends="gmime3>=3.2.7"
 checkdepends="python3-pytest mdocml dtach gdb tar xz xapian-core
- openssl"
+ openssl git"
 short_desc="Thread-based email index, search, and tagging"
 maintainer="Orphaned <orphan@voidlinux.org>"
 license="GPL-3.0-or-later"
@@ -45,6 +45,7 @@ do_build() {
 	fi
 	make ${makejobs}
 	make -C contrib/notmuch-mutt
+	make nmbug notmuch-git
 	cd ${wrksrc}/bindings/python-cffi
 	python -m build --wheel --skip-dependency-check --no-isolation
 	cd ${wrksrc}/contrib/python-legacy
@@ -71,6 +72,8 @@ do_check() {
 
 do_install() {
 	make DESTDIR=${DESTDIR} install
+	vbin notmuch-git
+	ln -s notmuch-git "$DESTDIR"/usr/bin/nmbug
 	rm -f ${DESTDIR}/usr/share/applications/mimeinfo.cache
 }
 
