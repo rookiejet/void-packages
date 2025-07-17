@@ -1,17 +1,21 @@
 # Template file for 'afew'
 pkgname=afew
 version=3.0.1
-revision=7
-build_style=python3-module
-hostmakedepends="python3-setuptools_scm python3-Sphinx pkg-config"
-depends="notmuch-python3 python3-dkimpy python3-chardet notmuch"
+revision=8
+# temporarily track git till new release due to breakage with deprecated 'notmuch-python3'
+_commit=bc09b1481d8b7e10f5bd90bae663664107e8552d
+build_style=python3-pep517
+hostmakedepends="python3-setuptools_scm python3-build python3-installer python3-Sphinx pkg-config"
+depends="python3-notmuch2 python3-dkimpy python3-chardet python3-importlib_metadata notmuch"
 checkdepends="python3-pytest python3-freezegun $depends"
 short_desc="Initial tagging script for notmuch mail"
 maintainer="Alexander Gehrke <void@qwertyuiop.de>"
 license="ISC"
 homepage="https://github.com/afewmail/afew"
-distfiles="${PYPI_SITE}/a/afew/afew-${version}.tar.gz"
-checksum=ce857fe1a3bc0982c1dac81aef66cacc148e4f9db06da720f869392af1c2ee72
+distfiles="https://github.com/afewmail/afew/archive/${_commit}.tar.gz"
+checksum=e4623bdc4012ec6f7e615c1640e342865c5da14f3cb1f593235fa8af30359934
+
+export SETUPTOOLS_SCM_PRETEND_VERSION="${version}"
 
 post_build() {
 	mkdir -p build/sphinx/man

@@ -1,0 +1,46 @@
+Use importlib.metadata instead of pkg_resources
+
+diff --git a/afew/FilterRegistry.py b/afew/FilterRegistry.py
+index c6a87c2..8fa9682 100644
+--- a/afew/FilterRegistry.py
++++ b/afew/FilterRegistry.py
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: ISC
+ # Copyright (c) Justus Winter <4winter@informatik.uni-hamburg.de>
+ 
+-import pkg_resources
++from importlib.metadata import entry_points
+ 
+ RAISEIT = object()
+ 
+@@ -51,7 +51,7 @@ class FilterRegistry:
+         return self.filter.items()
+ 
+ 
+-all_filters = FilterRegistry(pkg_resources.iter_entry_points('afew.filter'))
++all_filters = FilterRegistry(entry_points(group='afew.filter'))
+ 
+ 
+ def register_filter(klass):
+diff --git a/docs/conf.py b/docs/conf.py
+index 503d03f..cc02d54 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -14,7 +14,7 @@
+ 
+ import sys
+ import os
+-from pkg_resources import get_distribution
++from importlib.metadata import version as im_version
+ 
+ # If extensions (or modules to document with autodoc) are in another directory,
+ # add these directories to sys.path here. If the directory is relative to the
+@@ -74,7 +74,7 @@ pretended_version = os.environ.get('SETUPTOOLS_SCM_PRETEND_VERSION')
+ if pretended_version:
+     release = pretended_version
+ else:
+-    release = get_distribution('afew').version
++    release = im_version('afew')
+ # The X.Y.Z version.
+ version = '.'.join(release.split('.')[:3])
+ 

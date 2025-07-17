@@ -1,0 +1,38 @@
+Remove deprecated glob.glob1 call
+
+diff --git a/afew/commands.py b/afew/commands.py
+index 6048592..54edd9f 100644
+--- a/afew/commands.py
++++ b/afew/commands.py
+@@ -5,6 +5,7 @@ import glob
+ import sys
+ import logging
+ import argparse
++import os
+ 
+ from afew.Database import Database
+ from afew.main import main as inner_main
+@@ -131,9 +132,10 @@ def main():
+     logging.basicConfig(level=loglevel)
+ 
+     sys.path.insert(0, user_config_dir)
+-    for file_name in glob.glob1(user_config_dir, '*.py'):
++    for file_name in glob.glob(os.path.join(user_config_dir, '*.py')):
+         logging.info('Importing user filter %r' % (file_name,))
+-        __import__(file_name[:-3], level=0)
++        base_name = os.path.basename(file_name)[:-3]
++        __import__(base_name, level=0)
+ 
+     if args.move_mails:
+         args.mail_move_rules = get_mail_move_rules()
+diff --git a/afew/filters/__init__.py b/afew/filters/__init__.py
+index 05ef301..e7099d7 100644
+--- a/afew/filters/__init__.py
++++ b/afew/filters/__init__.py
+@@ -5,5 +5,5 @@ import os
+ import glob
+ 
+ __all__ = list(filename[:-3]
+-               for filename in glob.glob1(os.path.dirname(__file__), '*.py')
++               for filename in glob.glob(os.path.join(os.path.dirname(__file__), '*.py'))
+                if filename != '__init__.py')
