@@ -1,7 +1,7 @@
 # Template file for 'lsp-plugins'
 pkgname=lsp-plugins
-version=1.2.20
-revision=2
+version=1.2.22
+revision=1
 build_style=gnu-makefile
 make_use_env=yes
 make_build_args="VERBOSE=0"
@@ -15,9 +15,9 @@ short_desc="Collection of open-source audio plugins for studios"
 maintainer="Orphaned <orphan@voidlinux.org>"
 license="GPL-3.0-or-later"
 homepage="https://lsp-plug.in/"
-changelog="https://raw.githubusercontent.com/sadko4u/lsp-plugins/master/CHANGELOG"
-distfiles="https://github.com/sadko4u/lsp-plugins/releases/download/$version/lsp-plugins-src-${version}.tar.gz"
-checksum=ca8860dca6bfb1e7bcaba342c153e5fc5d3a025c91db66a4433e37829fb591c9
+changelog="https://raw.githubusercontent.com/lsp-plugins/lsp-plugins/master/CHANGELOG"
+distfiles="https://github.com/lsp-plugins/lsp-plugins/releases/download/$version/lsp-plugins-src-${version}.tar.gz"
+checksum=bb97270482b04c1269643a8373b554255dde287b1c5ddbc567ac94de4815a75b
 make_check=no # no test suite
 
 if [ "$CROSS_BUILD" ]; then
