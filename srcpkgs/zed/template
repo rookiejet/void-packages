@@ -1,25 +1,28 @@
 # Template file for 'zed'
 pkgname=zed
-version=0.166.1
+version=0.196.6
 revision=1
 archs="x86_64* aarch64*"
 build_style=cargo
-make_install_args="--path crates/zed"
-make_check_args="-- --test-threads 1"
-hostmakedepends="pkg-config protobuf gettext mold clang18 cmake"
+hostmakedepends="pkg-config protobuf gettext mold clang19 cmake"
 makedepends="alsa-lib-devel fontconfig-devel libxcb-devel libxkbcommon-devel
-libzstd-devel wayland-devel vulkan-loader openssl-devel libgit2-1.8-devel
-sqlite-devel"
+libzstd-devel wayland-devel vulkan-loader openssl-devel libgit2-1.9-devel
+sqlite-devel libX11-devel nodejs-devel"
 depends="git"
 checkdepends="noto-fonts-ttf"
 short_desc="High-performance, multiplayer code editor"
-maintainer="SpidFightFR <spidfight@swisscows.email>"
+maintainer="rookiejet <void@illumed.net>"
 license="GPL-3.0-or-later, Apache-2.0, AGPL-3.0-or-later"
 homepage="https://zed.dev/"
 distfiles="https://github.com/zed-industries/zed/archive/v${version}.tar.gz"
-checksum=49215bd681d0a0fe2be6504d5759ede4cfd57daa6033ca62a7ab30e2ce9af345
+checksum=d0fc759fe79cb927f8775b37e461ca493735cb83b61ac838827adcdfc8ec9884
+make_check=no # tests depend on a vulkan/wayland graphical environment
 
-post_install() {
+export ZED_UPDATE_EXPLANATION="Updates are managed by your system package manager."
+
+do_install() {
+	vbin target/"$RUST_TARGET"/release/zedit
+	vinstall target/"$RUST_TARGET"/release/zed 755 usr/libexec zed-editor
 	vlicense ${wrksrc}/LICENSE-AGPL
 	APP_NAME="Zed" DO_STARTUP_NOTIFY="true" APP_ICON="zed" APP_CLI="zedit" envsubst < ${wrksrc}/crates/zed/resources/zed.desktop.in > ${wrksrc}/crates/zed/resources/dev.zed.Zed.desktop
 	vinstall ${wrksrc}/crates/zed/resources/dev.zed.Zed.desktop 644 usr/share/applications/
