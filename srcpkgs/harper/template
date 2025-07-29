@@ -1,0 +1,17 @@
+# Template file for 'harper'
+pkgname=harper
+version=0.54.0
+revision=1
+build_style=cargo
+short_desc="Offline, privacy-first grammar checker. Fast, open-source, Rust-powered"
+maintainer="rookiejet <void@illumed.net>"
+license="Apache-2.0"
+homepage="https://writewithharper.com"
+changelog="https://github.com/Automattic/harper/releases"
+distfiles="https://github.com/Automattic/harper/archive/v${version}.tar.gz"
+checksum=8f02b263a7442138a3437d5ec8953aaa85a491497dc63d69b1804528ad84fb5d
+
+do_install() {
+	vbin target/"$RUST_TARGET"/release/harper-cli
+	vbin target/"$RUST_TARGET"/release/harper-ls
+}
