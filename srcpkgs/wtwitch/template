@@ -1,0 +1,25 @@
+# Template file for 'wtwitch'
+pkgname=wtwitch
+version=2.6.3
+revision=1
+makedepends="scdoc"
+depends="curl jq streamlink"
+short_desc="Terminal user interface for Twitch"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://github.com/krathalan/wtwitch"
+distfiles="https://github.com/krathalan/wtwitch/archive/${version}.tar.gz"
+checksum="71e24e6f818779811b33726dd1101693df85e1821fd0aad205a9f1a9ddcee98e"
+
+do_build() {
+	cd src || exit 1
+	scdoc < wtwitch.1.scd > wtwitch.1
+}
+
+do_install() {
+	cd src || exit 1
+	vbin wtwitch
+	vcompletion wtwitch-completion.bash bash wtwitch
+	vcompletion _wtwitch zsh wtwitch
+	vman wtwitch.1
+}

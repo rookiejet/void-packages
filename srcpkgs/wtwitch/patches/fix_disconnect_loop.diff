@@ -1,0 +1,17 @@
+patch from upstream PR #36: fix endless loop when no connection
+
+diff --git a/src/wtwitch b/src/wtwitch
+index 204bd5b..fa92ee6 100755
+--- a/src/wtwitch
++++ b/src/wtwitch
+@@ -1784,6 +1784,10 @@ list_vods()
+     local vodData
+     vodData="$(jq -r .data[${whileCounter}] <<< "${tmpJson}")"
+ 
++    if [[ "${vodData}" == "" ]]; then
++      exit_script_on_failure "${localizedStrings[1]}."
++    fi
++
+     while [[ "${vodData}" != "null" ]]; do
+       # Do not use subshells when debugging
+       if [[ "${DEBUGGING}" == "on" ]]; then

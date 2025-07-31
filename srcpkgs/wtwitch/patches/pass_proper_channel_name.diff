@@ -1,0 +1,15 @@
+patch from upstream PR #33: pass proper channel name
+
+diff --git a/src/wtwitch b/src/wtwitch
+index 204bd5b..6bbe57a 100755
+--- a/src/wtwitch
++++ b/src/wtwitch
+@@ -954,7 +954,7 @@ open_selected_stream()
+     exit_script_on_failure "$(get_translation install_fzf_first)"
+   fi
+ 
+-  stream="$(check_twitch_streams --online-only | fzf --ansi | cut -d: -f1 | sed 's/ *//')"
++  stream="$(check_twitch_streams --online-only | fzf --ansi | sed 's/^ *\|[:(].*//g')"
+ 
+   if [ -n "$stream" ]; then
+     watch_stream "$stream"
