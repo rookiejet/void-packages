@@ -1,0 +1,448 @@
+upstream PR #757: Use libnotmuch config api
+
+diff --git a/.github/workflows/ci-debian-build-test.yml b/.github/workflows/ci-debian-build-test.yml
+index ddc3372..0b98025 100644
+--- a/.github/workflows/ci-debian-build-test.yml
++++ b/.github/workflows/ci-debian-build-test.yml
+@@ -14,19 +14,13 @@ jobs:
+           - image: 'debian:stable'
+             env:
+               WEBKITGTK_VERSION: '4.0'
+-          - image: 'debian:bullseye'
+-            env:
+-              WEBKITGTK_VERSION: '4.0'
+-          - image: 'ubuntu:focal'
+-            env:
+-              WEBKITGTK_VERSION: '4.0'
+           - image: 'debian:sid'
+             env:
+               WEBKITGTK_VERSION: '4.1'
+-          - image: 'ubuntu:devel'
++          - image: 'ubuntu:noble'
+             env:
+               WEBKITGTK_VERSION: '4.1'
+-          - image: 'ubuntu:noble'
++          - image: 'ubuntu:devel'
+             env:
+               WEBKITGTK_VERSION: '4.1'
+     timeout-minutes: 15
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a89332c..4af89bf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -79,8 +79,8 @@ message (STATUS "Building ${PROJECT_NAME} ${PROJECT_VERSION}")
+ # check for required packages and libraries
+ #
+ find_package( Notmuch REQUIRED )
+-if (Notmuch_INDEX_FILE_API)
+-  add_definitions ( -DHAVE_NOTMUCH_INDEX_FILE )
++if (NOT Notmuch_VERSION VERSION_GREATER_EQUAL "5.4")
++    message (FATAL_ERROR "libnotmuch >= 5.4 must be installed.")
+ endif()
+ 
+ find_package ( PkgConfig REQUIRED )
+diff --git a/cmake/FindNotmuch.cmake b/cmake/FindNotmuch.cmake
+index ae147e1..6c63dc5 100644
+--- a/cmake/FindNotmuch.cmake
++++ b/cmake/FindNotmuch.cmake
+@@ -6,7 +6,6 @@
+ #  Notmuch_INCLUDE_DIRS   - the Notmuch include directories
+ #  Notmuch_LIBRARIES      - link these to use Notmuch
+ #  Notmuch_GMIME_VERSION  - the GMime version notmuch was linked against
+-#  Notmuch_INDEX_FILE_API - whether Notmuch has the notmuch_database_index_file() API
+ 
+ include (LibFindMacros)
+ 
+@@ -65,7 +64,6 @@ libfind_process (Notmuch)	# will set Notmuch_FOUND, Notmuch_INCLUDE_DIRS and Not
+ include (CheckSymbolExists)
+ set (CMAKE_REQUIRED_INCLUDES ${Notmuch_INCLUDE_DIR})
+ set (CMAKE_REQUIRED_LIBRARIES ${Notmuch_LIBRARY})
+-check_symbol_exists (notmuch_database_index_file notmuch.h Notmuch_INDEX_FILE_API)
+ 
+ # GMime version notmuch was linked against
+ include (GetPrerequisites)
+diff --git a/src/astroid.cc b/src/astroid.cc
+index b23e8f6..cc34546 100644
+--- a/src/astroid.cc
++++ b/src/astroid.cc
+@@ -342,8 +342,8 @@ namespace Astroid {
+     return m_config->config.get_child(id);
+   }
+ 
+-  const boost::property_tree::ptree& Astroid::notmuch_config () const {
+-    return m_config->notmuch_config;
++  const boost::filesystem::path& Astroid::notmuch_config () const {
++    return m_config->notmuch_config_path;
+   }
+ 
+   const StandardPaths& Astroid::standard_paths() const {
+diff --git a/src/astroid.hh b/src/astroid.hh
+index 3e945e9..dc1ef2f 100644
+--- a/src/astroid.hh
++++ b/src/astroid.hh
+@@ -8,6 +8,7 @@
+ # include <boost/property_tree/ptree.hpp>
+ # include <boost/program_options.hpp>
+ # include <boost/log/trivial.hpp>
++# include <boost/filesystem.hpp>
+ 
+ # define LOG(x) BOOST_LOG_TRIVIAL(x)
+ # define warn warning
+@@ -53,7 +54,7 @@ namespace Astroid {
+ 
+ 
+       const boost::property_tree::ptree& config (const std::string& path=std::string()) const;
+-      const boost::property_tree::ptree& notmuch_config () const;
++      const boost::filesystem::path& notmuch_config () const;
+       const StandardPaths& standard_paths() const;
+             RuntimePaths& runtime_paths() const;
+       bool  has_notmuch_config ();
+diff --git a/src/config.cc b/src/config.cc
+index fcecfab..6715f8b 100644
+--- a/src/config.cc
++++ b/src/config.cc
+@@ -161,13 +161,6 @@ namespace Astroid {
+     ptree default_config;
+     default_config.put ("astroid.config.version", CONFIG_VERSION);
+ 
+-    std::string nm_cfg = path(std_paths.home / path (".notmuch-config")).string();
+-    char* nm_env = getenv("NOTMUCH_CONFIG");
+-    if (nm_env != NULL) {
+-      nm_cfg.assign(nm_env, strlen(nm_env));
+-    }
+-    default_config.put ("astroid.notmuch_config" , nm_cfg);
+-
+     default_config.put ("astroid.debug.dryrun_sending", false);
+ 
+     /* only show hints with a level higher than this */
+@@ -319,13 +312,11 @@ namespace Astroid {
+       config.put ("poll.interval", 0);
+       config.put ("accounts.charlie.gpgkey", "gaute@astroidmail.bar");
+       config.put ("mail.send_delay", 0);
+-      std::string test_nmcfg_path;
+       if (getenv ("ASTROID_BUILD_DIR")) {
+-        test_nmcfg_path = (current_path () / path ("tests/mail/test_config")).string();
++        notmuch_config_path = (current_path () / path ("tests/mail/test_config"));
+       } else {
+-        test_nmcfg_path = (Resource::get_exe_dir () / path ("tests/mail/test_config")).string();
++        notmuch_config_path = (Resource::get_exe_dir () / path ("tests/mail/test_config")).string();
+       }
+-      boost::property_tree::read_ini (test_nmcfg_path, notmuch_config);
+       has_notmuch_config = true;
+       return;
+     }
+@@ -376,8 +367,7 @@ namespace Astroid {
+     std_paths.attach_dir = Utils::expand(bfs::path (config.get<string>("editor.attachment_directory")));
+     run_paths.attach_dir = std_paths.attach_dir;
+ 
+-    /* read notmuch config */
+-    bfs::path notmuch_config_path;
++    /* search for notmuch config file */
+     char * notmuch_config_env = getenv ("NOTMUCH_CONFIG");
+     if (notmuch_config_env) {
+       notmuch_config_path = Utils::expand(bfs::path (notmuch_config_env));
+@@ -386,9 +376,6 @@ namespace Astroid {
+     }
+ 
+     if (is_regular_file (notmuch_config_path)) {
+-      boost::property_tree::read_ini (
+-        notmuch_config_path.c_str(),
+-        notmuch_config);
+       has_notmuch_config = true;
+     } else {
+       has_notmuch_config = false;
+diff --git a/src/config.hh b/src/config.hh
+index 6c3c5fd..c8f93e8 100644
+--- a/src/config.hh
++++ b/src/config.hh
+@@ -55,8 +55,8 @@ namespace Astroid {
+       void write_back_config ();
+ 
+       ptree config;
+-      ptree notmuch_config;
+-      bool has_notmuch_config;
++      bfs::path notmuch_config_path;
++      bool has_notmuch_config = false;
+ 
+       const int CONFIG_VERSION = 11;
+ 
+diff --git a/src/db.cc b/src/db.cc
+index efba7f9..3c97d45 100644
+--- a/src/db.cc
++++ b/src/db.cc
+@@ -37,9 +37,11 @@ namespace Astroid {
+   std::vector<ustring> Db::tags;
+ 
+   bfs::path Db::path_db;
++  const char * Db::path_config;
+ 
+   void Db::init () {
+-    const ptree& config = astroid->notmuch_config ();
++    // NULL: notmuch searches according to notmuch-config(1) / notmuch.h:notmuch_database_open_with_config()
++    path_config = astroid->has_notmuch_config () ? astroid->notmuch_config().c_str() : NULL;
+ 
+     const char * home = getenv ("HOME");
+     if (home == NULL) {
+@@ -47,29 +49,40 @@ namespace Astroid {
+       throw invalid_argument ("db: error: HOME environment variable not set.");
+     }
+ 
+-    if (!astroid->has_notmuch_config ()) {
+-      throw database_error ("db: error: no notmuch config file found.");
++    notmuch_database_t *dbh = NULL;
++    char *error_message = NULL;
++    // NULL: notmuch searches according to notmuch-config(1) / notmuch.h:notmuch_database_open_with_config()
++    notmuch_status_t s = notmuch_database_load_config (NULL, path_config, NULL, &dbh, &error_message);
++
++    if (error_message != NULL) {
++      LOG (error) << "db: " << error_message;
++      free (error_message);
+     }
+ 
+-    ustring db_path;
+-    try {
+-      db_path = ustring (config.get<string> ("database.path"));
+-    } catch (const boost::property_tree::ptree_bad_path &ex) {
+-      throw database_error ("db: error: no database path specified");
++    if (s != NOTMUCH_STATUS_SUCCESS) {
++      notmuch_database_destroy (dbh);
++      const char *db_err_str;
++      switch (s) {
++        case NOTMUCH_STATUS_NO_DATABASE:
++          db_err_str = "db: error: no database path specified";
++          break;
++        case NOTMUCH_STATUS_NO_CONFIG:
++          db_err_str = "db: error: no notmuch config file found.";
++          break;
++        default:
++          db_err_str = "db: error: could not open notmuch config file";
++      }
++      throw database_error (db_err_str);
+     }
+ 
++    const char *db_path = notmuch_config_get (dbh, NOTMUCH_CONFIG_DATABASE_PATH);
+     LOG (info) << "db path: " << db_path;
+ 
+-    path_db = Utils::expand (path (db_path));
++    path_db = Utils::expand (path (ustring (db_path)));
+     path_db = absolute (path_db);
+ 
+-    ustring excluded_tags_s;
+-    try {
+-      excluded_tags_s = config.get<string> ("search.exclude_tags");
+-    } catch (const boost::property_tree::ptree_bad_path &ex) {
+-      throw database_error ("db: error: no search.exclude_tags defined in notmuch-config");
+-    }
+-    excluded_tags = VectorUtils::split_and_trim (excluded_tags_s, ";");
++    const char *excluded_tags_s = notmuch_config_get (dbh, NOTMUCH_CONFIG_EXCLUDE_TAGS);
++    excluded_tags = VectorUtils::split_and_trim (ustring (excluded_tags_s), ";");
+     sort (excluded_tags.begin (), excluded_tags.end ());
+ 
+     // TODO: find a better way to handle sent_tags, probably via AccountManager?
+@@ -77,18 +90,13 @@ namespace Astroid {
+     sent_tags = VectorUtils::split_and_trim (sent_tags_s, ",");
+     sort (sent_tags.begin (), sent_tags.end ());
+ 
+-    try {
+-      maildir_synchronize_flags = config.get<bool> ("maildir.synchronize_flags");
+-    } catch (const boost::property_tree::ptree_bad_path &ex) {
+-      throw database_error ("db: error: no maildir.maildir_synchronize_flags defined in notmuch-config");
+-    } catch (const boost::property_tree::ptree_bad_data &ex) {
+-      ustring bad_data_s = config.get<string> ("maildir.synchronize_flags");
+-      if (bad_data_s != "") {
+-        LOG (error) << "db: error: bad argument '" << bad_data_s << "' "
+-          << "for maildir.maildir_synchronize_flags in notmuch-config "
+-          << "(expected yes/no)";
+-      }
++    notmuch_bool_t sync_flags_b;
++    s = notmuch_config_get_bool (dbh, NOTMUCH_CONFIG_SYNC_MAILDIR_FLAGS, &sync_flags_b);
++    if (s == NOTMUCH_STATUS_SUCCESS) {
++      maildir_synchronize_flags = sync_flags_b;
+     }
++
++    notmuch_database_destroy (dbh);
+   }
+ 
+   Db::Db (DbMode _mode) {
+@@ -126,11 +134,17 @@ namespace Astroid {
+      * it is done.
+      */
+     do {
+-      s = notmuch_database_open (
++      char *error_message = NULL;
++      s = notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-        &nm_db);
++        path_config,
++        NULL, &nm_db, &error_message);
+ 
++      if (error_message != NULL) {
++        LOG (error) << "db: " << error_message;
++        free (error_message);
++      }
+       if (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) {
+         LOG (error) << "db: error: could not open db r/w, waited " <<
+                 time << " of maximum " <<
+@@ -165,11 +179,17 @@ namespace Astroid {
+     int time = 0;
+ 
+     do {
+-      s = notmuch_database_open (
++      char *error_message = NULL;
++      s = notmuch_database_open_with_config (
+           path_db.c_str(),
+           notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-          &nm_db);
++          path_config,
++          NULL, &nm_db, &error_message);
+ 
++      if (error_message != NULL) {
++        LOG (error) << "db: " << error_message;
++        free (error_message);
++      }
+       if (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) {
+         LOG (error) << "db: error: could not open db r/o, waited " <<
+                 time << " of maximum " <<
+diff --git a/src/db.hh b/src/db.hh
+index 182f6a9..425062d 100644
+--- a/src/db.hh
++++ b/src/db.hh
+@@ -16,19 +16,6 @@
+ # include "config.hh"
+ # include "proto.hh"
+ 
+-/* there was a bit of a round-dance of with the _st versions of these returning
+- * to the old name, but with different signature */
+-# if (LIBNOTMUCH_MAJOR_VERSION < 5)
+-# define notmuch_query_search_threads(x,y) notmuch_query_search_threads_st(x,y)
+-# define notmuch_query_count_threads(x,y) notmuch_query_count_threads_st(x,y)
+-# define notmuch_query_search_messages(x,y) notmuch_query_search_messages_st(x,y)
+-# define notmuch_query_count_messages(x,y) notmuch_query_count_messages_st(x,y)
+-# endif
+-
+-# ifndef HAVE_NOTMUCH_INDEX_FILE
+-# define notmuch_database_index_file(d,f,o,m) notmuch_database_add_message(d,f,m)
+-# endif
+-
+ namespace Astroid {
+   class NotmuchItem : public Glib::Object {
+     public:
+@@ -163,6 +150,7 @@ namespace Astroid {
+       static bool maildir_synchronize_flags;
+       static void init ();
+       static bfs::path path_db;
++      static const char * path_config;
+ 
+     private:
+       /*
+diff --git a/tests/test_notmuch.cc b/tests/test_notmuch.cc
+index b908ebc..8eb4cde 100644
+--- a/tests/test_notmuch.cc
++++ b/tests/test_notmuch.cc
+@@ -24,10 +24,10 @@ BOOST_AUTO_TEST_SUITE(Notmuch)
+     notmuch_database_t * nm_db;
+ 
+     notmuch_status_t s =
+-      notmuch_database_open (
++      notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-        &nm_db);
++        "", NULL, &nm_db, NULL);
+ 
+ 
+     BOOST_CHECK (s == NOTMUCH_STATUS_SUCCESS);
+@@ -76,10 +76,10 @@ BOOST_AUTO_TEST_SUITE(Notmuch)
+     notmuch_database_t * nm_db;
+ 
+     notmuch_status_t s =
+-      notmuch_database_open (
++      notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-        &nm_db);
++        "", NULL, &nm_db, NULL);
+ 
+ 
+     BOOST_CHECK (s == NOTMUCH_STATUS_SUCCESS);
+diff --git a/tests/test_notmuch_standalone.cc b/tests/test_notmuch_standalone.cc
+index 538404b..b909518 100644
+--- a/tests/test_notmuch_standalone.cc
++++ b/tests/test_notmuch_standalone.cc
+@@ -6,16 +6,6 @@
+ 
+ // Build with: g++ test_notmuch_standalone.cc -o test_notmuch_standalone -lnotmuch
+ 
+-
+-/* there was a bit of a round-dance of with the _st versions of these returning
+- * to the old name, but with different signature */
+-# if (LIBNOTMUCH_MAJOR_VERSION < 5)
+-# define notmuch_query_search_threads(x,y) notmuch_query_search_threads_st(x,y)
+-# define notmuch_query_count_threads(x,y) notmuch_query_count_threads_st(x,y)
+-# define notmuch_query_search_messages(x,y) notmuch_query_search_messages_st(x,y)
+-# define notmuch_query_count_messages(x,y) notmuch_query_count_messages_st(x,y)
+-# endif
+-
+ using std::cout;
+ using std::endl;
+ 
+@@ -25,10 +15,10 @@ int main () {
+   notmuch_database_t * nm_db;
+ 
+   notmuch_status_t s =
+-    notmuch_database_open (
++    notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-      &nm_db);
++      "", NULL, &nm_db, NULL);
+ 
+   (void) (s);
+ 
+@@ -108,10 +98,10 @@ int main () {
+    * continue loading the original query */
+   notmuch_database_t * nm_db2;
+ 
+-  s = notmuch_database_open (
++  s = notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-      &nm_db2);
++      "", NULL, &nm_db2, NULL);
+ 
+ 
+   char qry_s[256];
+@@ -152,10 +142,10 @@ int main () {
+   notmuch_database_close (nm_db2);
+ 
+   /* re-add unread tag */
+-  s = notmuch_database_open (
++  s = notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-      &nm_db2);
++      "", NULL, &nm_db2, NULL);
+ 
+ 
+ 
+diff --git a/tests/test_open_db.cc b/tests/test_open_db.cc
+index 34f4758..5ee6ee3 100644
+--- a/tests/test_open_db.cc
++++ b/tests/test_open_db.cc
+@@ -17,7 +17,6 @@ BOOST_AUTO_TEST_SUITE(DbTest)
+   BOOST_AUTO_TEST_CASE(open_confirm)
+   {
+     setup ();
+-    const_cast<ptree&>(astroid->notmuch_config()).put ("database.path", "tests/mail/test_mail");
+ 
+     Db * db;
+ 
+@@ -33,7 +32,6 @@ BOOST_AUTO_TEST_SUITE(DbTest)
+   BOOST_AUTO_TEST_CASE(open_rw)
+   {
+     setup ();
+-    const_cast<ptree&>(astroid->notmuch_config()).put ("database.path", "tests/mail/test_mail");
+ 
+     Db * db;
+ 
