@@ -1,9 +1,9 @@
 # Template file for 'vdirsyncer'
 pkgname=vdirsyncer
 version=0.19.3
-revision=2
-build_style=python3-module
-hostmakedepends="python3-setuptools_scm"
+revision=3
+build_style=python3-pep517
+hostmakedepends="python3-setuptools_scm python3-Sphinx"
 depends="python3-atomicwrites python3-click python3-click-log python3-requests
  python3-requests-toolbelt python3-aiohttp python3-aiostream"
 checkdepends="python3-pytest-xdist python3-pytest-asyncio python3-trustme
@@ -17,7 +17,13 @@ changelog="https://github.com/pimutils/vdirsyncer/raw/main/CHANGELOG.rst"
 distfiles="${PYPI_SITE}/v/vdirsyncer/vdirsyncer-${version}.tar.gz"
 checksum=e437851feb985dec3544654f8f9cf6dd109b0b03f7e19956086603092ffeb28f
 
+post_build() {
+	PYTHONPATH="${PWD}/build/lib:$PYTHONPATH" \
+		sphinx-build -b man docs/ build/
+}
+
 post_install() {
+	vman build/vdirsyncer.1
 	vsconf config.example
 	vlicense LICENSE
 }
