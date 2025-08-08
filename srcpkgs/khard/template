@@ -1,13 +1,13 @@
 # Template file for 'khard'
 pkgname=khard
-version=0.19.1
+version=0.20.0
 revision=1
-build_style=python3-module
+build_style=python3-pep517
 # fails in CI
-make_check_args="--deselect test/test_command_line_interface.py::MiscCommands"
+make_check_args="--deselect test/test_command_line_interface.py::MiscCommands
+ --deselect test/test_khard.py::TestSortContacts::test_sort_order_for_accentuated_names" # fails on musl
 hostmakedepends="python3-setuptools_scm"
-depends="python3-atomicwrites python3-configobj
- python3-vobject python3-Unidecode python3-ruamel.yaml"
+depends="python3-configobj python3-vobject python3-ruamel.yaml"
 checkdepends="${depends} python3-pytest"
 short_desc="Command-line addressbook built around CardDAV"
 maintainer="Orphaned <orphan@voidlinux.org>"
@@ -15,7 +15,7 @@ license="GPL-3.0-only"
 homepage="https://khard.readthedocs.io/en/latest/"
 changelog="https://raw.githubusercontent.com/lucc/khard/develop/CHANGES"
 distfiles="${PYPI_SITE}/k/khard/khard-${version}.tar.gz"
-checksum=59f30a0da3c3da3eb04f4dbe18ee4763913b685d99ec8418fd574a88c491c490
+checksum=178f32ccf01c050b5cd9e736282583de9a6445fd98e00388df792207629bbdd0
 
 post_install() {
 	vsconf doc/source/examples/khard.conf.example
