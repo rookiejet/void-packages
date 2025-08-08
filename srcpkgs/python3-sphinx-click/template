@@ -1,0 +1,18 @@
+# Template file for 'python3-sphinx-click'
+pkgname=python3-sphinx-click
+version=6.0.0
+revision=1
+build_style=python3-pep517
+hostmakedepends="python3-setuptools python3-pbr"
+depends="python3-Sphinx python3-click python3-docutils"
+checkdepends="$depends python3-pytest"
+short_desc="Sphinx plugin to automatically document click-based applications"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/click-contrib/sphinx-click"
+distfiles="${PYPI_SITE}/s/sphinx_click/sphinx_click-${version}.tar.gz"
+checksum=f5d664321dc0c6622ff019f1e1c84e58ce0cecfddeb510e004cf60c2a3ab465b
+
+post_install() {
+	vlicense LICENSE
+}
