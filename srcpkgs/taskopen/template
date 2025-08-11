@@ -1,0 +1,47 @@
+# Template file for 'taskopen'
+pkgname=taskopen
+version=2.0.2
+revision=1
+build_style=gnu-makefile
+hostmakedepends="nim"
+short_desc="Tool for taking notes and open urls with taskwarrior"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-2.0-or-later"
+homepage="https://github.com/jschlatow/taskopen"
+distfiles="https://github.com/jschlatow/taskopen/archive/refs/tags/v${version}.tar.gz"
+checksum=249cce42ac427376a8909e81e49f2d2ba0e79d29b9f83224560cb45df8b7d31c
+
+pre_configure() {
+	local arch args
+	case "$XBPS_TARGET_MACHINE" in
+		aarch64*) arch=arm64;;
+		arm*)     arch=arm;;
+		mips*)    arch=mips;;
+		ppc64le*) arch=powerpc64el;;
+		ppc64*)   arch=powerpc64;;
+		ppc*)     arch=powerpc;;
+		riscv64*) arch=riscv64;;
+		x86_64*)  arch=amd64;;
+		*)        msg_error "taskopen: $XBPS_TARGET_MACHINE unknown to template";;
+	esac
+	LDFLAGS+=" -lrt -ldl -lpthread"
+	: >nim.cfg
+	if [ -z "$CROSS_BUILD" ]; then
+		cat >>nim.cfg <<-EOF
+	gcc.options.always = "$CPPFLAGS $CFLAGS -pthread"
+	gcc.options.linker = "$LDFLAGS"
+	EOF
+	fi
+	if [ -n "$arch" ]; then
+		cat >>nim.cfg <<-EOF
+	$arch.linux.gcc.exe = "$CC"
+	$arch.linux.gcc.linkerexe = "$CC"
+	$arch.linux.gcc.options.always = "$CPPFLAGS $CFLAGS -pthread"
+	$arch.linux.gcc.options.linker = "$LDFLAGS"
+	EOF
+	args="--cpu:$arch"
+	fi
+	vsed -e "s/^\(\s*nim c\)/\1 $args /" -i Makefile
+
+	vsed -e "s/share\/taskopen\/examples/share\/examples\/taskopen/" -i Makefile
+}
