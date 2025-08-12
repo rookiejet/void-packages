@@ -13,3 +13,14 @@ homepage="https://zk-org.github.io/zk/"
 changelog="https://raw.githubusercontent.com/zk-org/zk/main/CHANGELOG.md"
 distfiles="https://github.com/zk-org/zk/archive/refs/tags/v${version}.tar.gz"
 checksum=1f30aae497476342203b3cecb63edd92faf4d837860a894fdee4b372184e9ec4
+
+post_install() {
+	vmkdir usr/share/doc/zk
+	for d in docs/*; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*.md; do
+			[ -f "$f" ] || continue
+			vinstall "$f" 644 usr/share/doc/zk/"${d#docs/}"
+		done
+	done
+}
