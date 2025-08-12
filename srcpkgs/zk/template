@@ -1,11 +1,13 @@
 # Template file for 'zk'
 pkgname=zk
 version=0.15.1
-revision=1
+revision=2
 build_style=go
 go_import_path=github.com/zk-org/zk
 go_build_tags="fts5"
 go_ldflags="-X main.Version=${version}"
+hostmakedepends="python3-Sphinx python3-MyST-Parser python3-yaml
+ python3-markdown-it python3-mdit-py-plugins"
 short_desc="Plain text note-taking assistant"
 maintainer="cinerea0 <cinerea0@protonmail.com>"
 license="GPL-3.0-or-later"
@@ -13,3 +15,22 @@ homepage="https://zk-org.github.io/zk/"
 changelog="https://raw.githubusercontent.com/zk-org/zk/main/CHANGELOG.md"
 distfiles="https://github.com/zk-org/zk/archive/refs/tags/v${version}.tar.gz"
 checksum=1f30aae497476342203b3cecb63edd92faf4d837860a894fdee4b372184e9ec4
+
+post_install() {
+	# we don't package the sphinx furo theme yet
+	vsed -i 's/html_theme = "furo"/html_theme = "pyramid"/' docs/conf.py
+
+	mkdir -p docs-build
+	sphinx-build -a docs docs-build
+
+	vmkdir usr/share/doc/zk/html
+	vcopy docs-build/* usr/share/doc/zk/html
+
+	for d in docs/*; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*.md; do
+			[ -f "$f" ] || continue
+			vinstall "$f" 644 usr/share/doc/zk/markdown/"${d#docs/}"
+		done
+	done
+}
