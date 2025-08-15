@@ -1,0 +1,12 @@
+# Template file for 'age-edit'
+pkgname=age-edit
+version=0.9.0
+revision=1
+build_style=go
+go_import_path="dbohdan.com/age-edit"
+short_desc="Edit fiels encrypted with age"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/dbohdan/age-edit"
+distfiles="https://github.com/dbohdan/age-edit/archive/refs/tags/v${version}.tar.gz"
+checksum=8848dc2c4c15846cffd50d02cea68fd057c29aeb4f3588e702ca95d0d1441b0f
