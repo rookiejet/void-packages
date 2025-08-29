@@ -1,0 +1,31 @@
+# Template file for 'git-bug'
+pkgname=git-bug
+version=0.10.1
+revision=1
+build_style=go
+go_import_path="github.com/git-bug/git-bug"
+depends="git"
+checkdepends="$depends"
+short_desc="Distributed, offline-first bug tracker embedded in git"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/git-bug/git-bug"
+changelog="https://github.com/git-bug/git-bug/blob/trunk/CHANGELOG.md"
+distfiles="https://github.com/git-bug/git-bug/archive/refs/tags/v$version.tar.gz"
+checksum=1b5cafa3d9918ce18c4674c93b83359e211def83e716d5841fa93c77b457e6c2
+
+post_install() {
+	for shell in bash fish zsh; do
+		vcompletion misc/completion/$shell/git-bug $shell
+	done
+
+	for f in doc/man/*; do
+		vman $f
+	done
+
+	vdoc doc/README.md
+	vdoc doc/feature-matrix.md
+	for d in md assets usage contrib design; do
+		vcopy doc/$d usr/share/doc/git-bug
+	done
+}
