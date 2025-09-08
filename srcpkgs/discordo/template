@@ -1,0 +1,19 @@
+# Template file for 'discordo'
+pkgname=discordo
+version=0.0.20250905
+revision=1
+_githash="8d9b4afca6444a683095ed0092e565fac833cb49"
+_gitshort="${_githash:0:7}"
+build_style=go
+go_import_path="github.com/ayn2op/discordo"
+makedepends="libX11-devel"
+short_desc="Lightweight, secure, and feature-rich Discord terminal (TUI) client"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/ayn2op/discordo"
+distfiles="https://github.com/ayn2op/discordo/archive/${_githash}.tar.gz"
+checksum=43e9c735e6fa999b7141b0f431834838f1a5703da816455e507368bdcc8c5da6
+
+post_install() {
+	vdoc README.md
+}
