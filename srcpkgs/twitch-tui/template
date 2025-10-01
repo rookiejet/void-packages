@@ -1,0 +1,18 @@
+# Template file for 'twitch-tui'
+pkgname=twitch-tui
+version=2.6.19
+revision=1
+#build_wrksrc=swayr
+build_style=cargo
+makedepends="openssl-devel pkg-config"
+short_desc="Twitch cat in the terminal"
+maintainer="rookiejet <void@illumed.net>"
+license="Apache-2.0 OR MIT"
+homepage="https://xithrius.github.io/twitch-tui/"
+changelog="https://github.com/Xithrius/twitch-tui/releases"
+distfiles="https://github.com/Xithrius/twitch-tui/archive/refs/tags/v$version.tar.gz"
+checksum=a93cf7eeb3d26457ff0b7f9a1e59ec4857fc5e5a9726d84b2d562d18be7f6b7f
+
+post_install() {
+	vlicense LICENSE-MIT
+}
