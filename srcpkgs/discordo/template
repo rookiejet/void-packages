@@ -1,0 +1,29 @@
+# Template file for 'discordo'
+pkgname=discordo
+version=20260120
+revision=1
+_githash="56b89ba50351fc59572e99e6b0a7dbb6f349e0db"
+_gitshort="${_githash:0:7}"
+build_style=go
+go_import_path="github.com/ayn2op/discordo"
+go_ldflags="-X main.version=${version} -X main.commit=${_githash} -X main.builtBy=xbps"
+makedepends="libX11-devel"
+short_desc="Lightweight, secure, and feature-rich Discord terminal (TUI) client"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/ayn2op/discordo"
+distfiles="https://github.com/ayn2op/discordo/archive/${_githash}.tar.gz"
+checksum=547cc52f122f010267e5ded0800f08bca30c4391ba4316acf53688d11fa076af
+
+pre_build() {
+	local _date
+	if [ "$SOURCE_DATE_EPOCH" ]; then
+		_date="$(date --utc --date "@$SOURCE_DATE_EPOCH" "+%Y-%m-%d")"
+		go_ldflags+=" -X main.date=${_date}"
+	fi
+}
+
+
+post_install() {
+	vlicense LICENSE
+}
