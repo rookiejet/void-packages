@@ -1,0 +1,50 @@
+From 1dac8bbe9e24ed29b6799f4433452c6f72967d65 Mon Sep 17 00:00:00 2001
+From: Kenny Levinsen <kl@kl.wtf>
+Date: Fri, 24 Oct 2025 13:41:52 +0200
+Subject: [PATCH] Avoid using wl_display_dispatch
+
+wl_display_dispatch is a convenience function intended to poll the
+socket and wait for events to be dispatched, and may block indefinitely.
+This function is primarily intended for simple clients that do not use
+event loops.
+
+swayidle uses wl_event_loop to monitor the display socket, and only
+calls the event handler if there is something to read. Instead of
+polling again and possibly blocking, read whatever is available
+directly.
+
+Fixes: https://github.com/swaywm/swayidle/issues/193
+---
+ main.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/main.c b/main.c
+index cf06ec82..a66e7001 100644
+--- a/main.c
++++ b/main.c
+@@ -912,6 +912,16 @@ static int handle_signal(int sig, void *data) {
+ 	abort(); // not reached
+ }
+ 
++static int display_dispatch(struct wl_display *display) {
++	if (wl_display_prepare_read(display) == -1) {
++		return wl_display_dispatch_pending(display);
++	}
++	if (wl_display_read_events(display)  == -1) {
++		return -1;
++	}
++	return wl_display_dispatch_pending(display);
++}
++
+ static int display_event(int fd, uint32_t mask, void *data) {
+ 	if ((mask & WL_EVENT_HANGUP) || (mask & WL_EVENT_ERROR)) {
+ 		sway_terminate(0);
+@@ -919,7 +929,7 @@ static int display_event(int fd, uint32_t mask, void *data) {
+ 
+ 	int count = 0;
+ 	if (mask & WL_EVENT_READABLE) {
+-		count = wl_display_dispatch(state.display);
++		count = display_dispatch(state.display);
+ 	}
+ 	if (mask & WL_EVENT_WRITABLE) {
+ 		wl_display_flush(state.display);
