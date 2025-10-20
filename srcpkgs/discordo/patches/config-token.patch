@@ -1,0 +1,49 @@
+diff --git a/cmd/root.go b/cmd/root.go
+index f684f14..b2961fa 100644
+--- a/cmd/root.go
++++ b/cmd/root.go
+@@ -50,10 +50,18 @@ func Run() error {
+ 	}
+ 
+ 	token := *tokenFlag
++	slog.Debug("token resolution", "from_flag", token != "", "from_config", cfg.Token != "")
++
++	if token == "" && cfg.Token != "" {
++		token = cfg.Token
++		slog.Info("using token from config file")
++	}
+ 	if token == "" {
+ 		token, err = keyring.Get(consts.Name, "token")
+ 		if err != nil {
+ 			slog.Info("failed to retrieve token from keyring", "err", err)
++		} else if token != "" {
++			slog.Info("using token from keyring")
+ 		}
+ 	}
+ 
+diff --git a/internal/config/config.go b/internal/config/config.go
+index bbdd7c2..d83e5c1 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -34,6 +34,7 @@ type (
+ 	Config struct {
+ 		Mouse  bool   `toml:"mouse"`
+ 		Editor string `toml:"editor"`
++		Token  string `toml:"token"`
+ 
+ 		Status discord.Status `toml:"status"`
+ 
+diff --git a/internal/config/config.toml b/internal/config/config.toml
+index ca63fa5..408a2a1 100644
+--- a/internal/config/config.toml
++++ b/internal/config/config.toml
+@@ -2,6 +2,8 @@
+ mouse = true
+ # The program to open when the `keys.message_input.editor` keymap is pressed. Set the value to `"default"` to use `$EDITOR`.
+ editor = "default"
++# Discord authentication token. Leave empty to use keyring or command-line flag.
++token = ""
+ 
+ # "default" (unknown), "online", "dnd", "idle", "invisible", "offline"
+ status = "default"
+
