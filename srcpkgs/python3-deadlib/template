@@ -1,0 +1,12 @@
+# Template file for 'python3-deadlib'
+pkgname=python3-deadlib
+version=3.13.0
+revision=1
+build_style=python3-pep517
+hostmakedepends="python3-setuptools"
+short_desc="Python dead batteries. See PEP 594"
+maintainer="rookiejet <void@illumed.net>"
+license="PSF-2.0"
+homepage="https://github.com/youknowone/python-deadlib"
+distfiles="https://github.com/youknowone/python-deadlib/archive/v${version}.tar.gz"
+checksum=
