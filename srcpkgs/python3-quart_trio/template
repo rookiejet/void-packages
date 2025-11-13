@@ -1,0 +1,19 @@
+# Template file for 'python3-quart_trio'
+pkgname=python3-quart_trio
+version=0.12.0
+revision=1
+build_style=python3-pep517
+hostmakedepends="python3-pdm-backend"
+depends="python3-quart python3-hypercorn python3-trio"
+checkdepends="$depends"
+short_desc="Quart-Trio is an extension for Quart to support the Trio event loop"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/pgjones/quart-trio"
+changelog="https://github.com/pgjones/quart-trio/raw/refs/heads/main/CHANGELOG.rst"
+distfiles="https://github.com/pgjones/quart-trio/archive/refs/tags/${version}.tar.gz"
+checksum=9062eef2a4b0f29089bed4d56d635280fda79f0f45a32e2e7073bbe78c795924
+
+post_install() {
+	vlicense LICENSE
+}
