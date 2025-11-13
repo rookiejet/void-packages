@@ -1,0 +1,35 @@
+From 1ce1b59ec64eae911272087bece5773a62d873dc Mon Sep 17 00:00:00 2001
+From: Trevor Gamblin <tgamblin@ecocode.ca>
+Date: Mon, 22 Sep 2025 15:50:21 -0400
+Subject: [PATCH] Allow building the package with setuptools-scm v9.x (#3682)
+
+setuptools-scm version 9.2.0 is now available, so change the upper limit
+specified in dependencies.
+
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ changelog/3652.misc.rst | 1 +
+ pyproject.toml          | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+ create mode 100644 changelog/3652.misc.rst
+
+diff --git a/changelog/3652.misc.rst b/changelog/3652.misc.rst
+new file mode 100644
+index 0000000000..96823729aa
+--- /dev/null
++++ b/changelog/3652.misc.rst
+@@ -0,0 +1 @@
++Allowed building the urllib3 package with newer setuptools-scm v9.x.
+diff --git a/pyproject.toml b/pyproject.toml
+index 99856c0bd9..dd2600be4f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,7 +1,7 @@
+ # This file is protected via CODEOWNERS
+ 
+ [build-system]
+-requires = ["hatchling>=1.6.0,<2", "hatch-vcs>=0.4.0,<0.6.0", "setuptools-scm>=8,<9"]
++requires = ["hatchling>=1.27.0,<2", "hatch-vcs>=0.4.0,<0.6.0", "setuptools-scm>=8,<10"]
+ build-backend = "hatchling.build"
+ 
+ [project]
