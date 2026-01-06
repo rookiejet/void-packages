@@ -1,0 +1,18 @@
+# Template file for 'goose'
+pkgname=goose
+version=1.18.0
+revision=1
+build_style=cargo
+makedepends="pkg-config libxcb-devel protobuf-devel libzstd-devel sqlite-devel
+ oniguruma-devel libgit2-1.8-devel"
+short_desc="Open source, extensible AI agent that goes beyond code suggestions"
+maintainer="rookiejet <void@illumed.net>"
+license="Apache-2.0"
+homepage="https://block.github.io/goose"
+changelog="https://github.com/block/goose/releases"
+distfiles="https://github.com/block/goose/archive/refs/tags/v${version}.tar.gz"
+checksum=4c429205addc61e5fd3a56f2a359f2224e83b784fba4463bcabbd7df0e165005
+
+do_install() {
+	vbin target/"$RUST_TARGET"/release/goose
+}
