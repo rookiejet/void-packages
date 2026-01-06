@@ -1,0 +1,26 @@
+# Template file for 'goose'
+pkgname=goose
+version=1.37.0
+revision=1
+build_style=cargo
+build_wrkspace=crates/goose-cli
+configure_args="-p goose-cli"
+makedepends="pkg-config libxcb-devel protobuf-devel libzstd-devel sqlite-devel
+ oniguruma-devel libgit2-1.8-devel python3 curl libclang22 clang22-devel cmake libgomp-devel"
+short_desc="Open source, extensible AI agent that goes beyond code suggestions"
+maintainer="rookiejet <void@illumed.net>"
+license="Apache-2.0"
+homepage="https://block.github.io/goose"
+changelog="https://github.com/block/goose/releases"
+distfiles="https://github.com/block/goose/archive/refs/tags/v${version}.tar.gz"
+checksum=e037a24517d422eca06575ac90cd74b46e0bb256483ecfec3b5fa2d03159be47
+
+if [ "$XBPS_TARGET_LIBC" = "musl" ]; then
+	configure_args+=" --no-default-features --features portable-default"
+	# Currently broken. Waiting on https://github.com/denoland/rusty_v8/pull/1351
+	#export V8_FROM_SOURCE=1
+fi
+
+do_install() {
+	vbin target/"$RUST_TARGET"/release/goose
+}
