@@ -1,0 +1,21 @@
+# Template file for 'skyscraper'
+pkgname=skyscraper
+version=3.18.2
+revision=1
+build_style=qmake
+hostmakedepends="qt6-base"
+makedepends="qt6-base-devel"
+short_desc="Powerful and versatile game data scraper written in Qt and C++"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://gemba.github.io/skyscraper/"
+distfiles="https://github.com/Gemba/skyscraper/archive/refs/tags/${version}.tar.gz"
+checksum=42b8adca6b9b34e350030f4c046ab7527e469ee35c6d8f0c0dc02889b3e410a0
+
+post_patch() {
+	vsed -e 's|usr/local|usr|' \
+		 -e 's|unix:supplementary.path=$${PREFIX}/bin|unix:supplementary.path=/usr/share/skyscraper|' \
+		 -e 's|unix:config.path=$${PREFIX}/etc/skyscraper|unix:config.path=/etc/skyscraper|' \
+		 -e 's|examples.path=$${PREFIX}/etc/skyscraper|examples.path=/usr/share/examples/skyscraper|' \
+		 -i skyscraper.pro
+}
