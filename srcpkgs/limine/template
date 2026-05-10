@@ -1,11 +1,12 @@
 # Template file for 'limine'
 pkgname=limine
 version=12.10.0
-revision=1
+revision=2
 build_style=gnu-configure
 configure_args="--enable-all"
 _llvmver=23
 hostmakedepends="mtools nasm llvm${_llvmver} clang${_llvmver} lld${_llvmver}"
+conf_files="/etc/default/limine-kernel-hook"
 short_desc="Modern, secure, portable, multiprotocol bootloader and boot manager"
 maintainer="Mintsuki <mintsuki@protonmail.com>"
 license="BSD-2-Clause"
@@ -18,4 +19,8 @@ make_check=no # Tests fail on github CI, likely due to resource exhaustion
 post_install() {
 	vlicense COPYING
 	vlicense 3RDPARTY.md
+
+	vinstall ${FILESDIR}/limine-kernel-hook.conf 644 etc/default limine-kernel-hook
+	vinstall ${FILESDIR}/kernel.d/limine.post-install 744 etc/kernel.d/post-install 50-limine
+	vinstall ${FILESDIR}/kernel.d/limine.post-remove 744 etc/kernel.d/post-remove 50-limine
 }
