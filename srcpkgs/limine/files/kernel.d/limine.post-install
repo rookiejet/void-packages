@@ -1,0 +1,248 @@
+#!/bin/sh
+#
+# Kernel hook for limine.
+#
+# Arguments passed to this script: $1 pkgname, $2 version.
+#
+
+version="$2"
+
+msg() {
+	echo "limine: $1"
+}
+
+hash_path() {
+	file="$1"
+	path="$2"
+	printf '%s#%s' "$path" "$(b2sum "$file" | awk '{print $1}')"
+}
+
+print_entry() {
+	entry_version="$1"
+	entry_title="${LIMINE_LABEL} ${entry_version}"
+	kernel_src="$ROOTDIR/boot/vmlinuz-$entry_version"
+	kernel_rel="/vmlinuz-$entry_version"
+	if [ ! -f "$kernel_src" ]; then
+		kernel_src="$ROOTDIR/boot/vmlinux-$entry_version"
+		kernel_rel="/vmlinux-$entry_version"
+	fi
+	[ -f "$kernel_src" ] || return 1
+
+	printf '/%s\n' "$entry_title"
+	printf '    protocol: linux\n'
+	printf '    path: %s\n' "$(hash_path "$kernel_src" "${LIMINE_BOOT_PREFIX}${kernel_rel}")"
+
+	initrd_src="$ROOTDIR/boot/initramfs-$entry_version.img"
+	if [ -f "$initrd_src" ]; then
+		printf '    module_path: %s\n' \
+			"$(hash_path "$initrd_src" "${LIMINE_BOOT_PREFIX}/initramfs-$entry_version.img")"
+	fi
+
+	if [ -n "$CMDLINE" ]; then
+		printf '    cmdline: %s\n' "$CMDLINE"
+	fi
+}
+
+remove_kernel_entry() {
+	conf="$1"
+	entry_line="/${LIMINE_LABEL} ${version}"
+	tmpfile=$(mktemp)
+	# Remove the entry for ${version} and collapse runs of blank lines so
+	# that sections are separated by at most one blank line.  Leading
+	# blank lines are dropped.
+	awk -v entry="$entry_line" '
+		BEGIN { skip = 0; prev_blank = 0; emitted = 0 }
+		$0 == entry { skip = 1; next }
+		skip && /^\/+/ { skip = 0 }
+		skip { next }
+		/^[[:space:]]*$/ {
+			if (emitted && !prev_blank) print ""
+			prev_blank = 1
+			next
+		}
+		{
+			emitted = 1
+			prev_blank = 0
+			print
+		}
+	' "$conf" > "$tmpfile"
+	mv -f "$tmpfile" "$conf"
+}
+
+insert_kernel_entry() {
+	conf="$1"
+	entry="$2"
+	tmpfile=$(mktemp)
+	# Insert the new entry before the first existing entry and collapse
+	# runs of blank lines so that sections are separated by at most one
+	# blank line.  Leading blank lines are dropped.
+	awk -v prefix="/${LIMINE_LABEL} " -v entry="$entry" '
+		BEGIN { inserted = 0; prev_blank = 0; emitted = 0 }
+		{
+			if (!inserted && index($0, prefix) == 1) {
+				if (emitted && !prev_blank) print ""
+				print entry
+				print ""
+				inserted = 1
+				prev_blank = 1
+			}
+			if ($0 ~ /^[[:space:]]*$/) {
+				if (emitted && !prev_blank) print ""
+				prev_blank = 1
+				next
+			}
+			emitted = 1
+			prev_blank = 0
+			print
+		}
+		END {
+			if (!inserted) {
+				if (emitted && !prev_blank) print ""
+				print entry
+			}
+		}
+	' "$conf" > "$tmpfile"
+	mv -f "$tmpfile" "$conf"
+}
+
+ensure_single_kernel_entry() {
+	remove_kernel_entry "$limine_conf_path"
+
+	entry=$(print_entry "$version") || {
+		msg "kernel for version $version not found, skipping menu entry update"
+		return 0
+	}
+
+	insert_kernel_entry "$limine_conf_path" "$entry"
+}
+
+require_root_secureboot_files() {
+	if [ ! -f "$ROOTDIR/$EFI_KEY_FILE" ] || [ ! -f "$ROOTDIR/$EFI_CERT_FILE" ]; then
+		msg "key and/or certificate is not available"
+		return 1
+	fi
+
+	if ! stat -c '%A %U' "$ROOTDIR/$EFI_KEY_FILE" "$ROOTDIR/$EFI_CERT_FILE" |
+		awk '$1 !~ /^-...------$/ || $2 != "root" { exit 1 }'
+	then
+		msg "$EFI_KEY_FILE and $EFI_CERT_FILE must be owned by root"
+		msg "and not readable by other users"
+		return 1
+	fi
+}
+
+sign_and_enroll() {
+	tmp_enrolled="${limine_efi_path}.enrolled"
+	tmp_signed="${limine_efi_path}.signed"
+
+	cp -f "$efi_source_path" "$tmp_enrolled" || {
+		msg "failed to prepare EFI image for config hash enrollment"
+		return 1
+	}
+
+	if ! usr/bin/limine enroll-config "$tmp_enrolled" "$config_hash"; then
+		msg "failed to enroll config hash into EFI image"
+		rm -f "$tmp_enrolled" "$tmp_signed"
+		return 1
+	fi
+
+	if ! usr/bin/sbsign ${EFI_SIGN_ENGINE:+--engine="$EFI_SIGN_ENGINE"} \
+		-k "$ROOTDIR/$EFI_KEY_FILE" -c "$ROOTDIR/$EFI_CERT_FILE" \
+		--output "$tmp_signed" "$tmp_enrolled"
+	then
+		msg "failed to sign $tmp_enrolled"
+		rm -f "$tmp_enrolled" "$tmp_signed"
+		return 1
+	fi
+
+	if ! usr/bin/sbverify -c "$ROOTDIR/$EFI_CERT_FILE" "$tmp_signed" >/dev/null; then
+		msg "failed to verify the signed EFI image"
+		rm -f "$tmp_enrolled" "$tmp_signed"
+		return 1
+	fi
+
+	if [ "${EFI_KEEP_UNSIGNED}" = "1" ]; then
+		mv -f "$tmp_enrolled" "${limine_efi_path}.unsigned"
+	else
+		rm -f "$tmp_enrolled" "${limine_efi_path}.unsigned"
+	fi
+
+	mv -f "$tmp_signed" "$limine_efi_path"
+}
+
+# shellcheck source=/dev/null
+. "$ROOTDIR/etc/default/limine-kernel-hook"
+
+: "${UPDATE_LIMINE:=0}" \
+  "${LIMINE_HELPER_DIR:=/boot/efi/EFI/BOOT}" \
+  "${LIMINE_CONF:=/boot/efi/EFI/BOOT/limine.conf}" \
+  "${LIMINE_EFI:=/boot/efi/EFI/BOOT/BOOTX64.EFI}" \
+  "${LIMINE_BOOT_PREFIX:=boot():}" "${LIMINE_LABEL:=Void Linux}" \
+  "${LIMINE_BIOS:=0}" \
+  "${LIMINE_SECUREBOOT:=0}" "${EFI_KEEP_UNSIGNED:=0}" "${CMDLINE:=}"
+
+if [ "${UPDATE_LIMINE}" != "1" ]; then
+	exit 0
+fi
+
+limine_dir_path="$ROOTDIR/${LIMINE_HELPER_DIR#/}"
+limine_conf_path="$ROOTDIR/${LIMINE_CONF#/}"
+limine_efi_path="$ROOTDIR/${LIMINE_EFI#/}"
+
+mkdir -p "$limine_dir_path"
+mkdir -p "${limine_conf_path%/*}"
+touch "$limine_conf_path"
+
+case "$(xbps-uhelper arch)" in
+	x86_64*) limine_efi=BOOTX64.EFI ;;
+	i686*) limine_efi=BOOTIA32.EFI ;;
+	aarch64*) limine_efi=BOOTAA64.EFI ;;
+	riscv64*) limine_efi=BOOTRISCV64.EFI ;;
+	arm*) limine_efi=BOOTARM.EFI ;;
+	*)
+		msg "unsupported UEFI architecture"
+		exit 1
+		;;
+esac
+
+if [ ! -f "$ROOTDIR/usr/share/limine/$limine_efi" ]; then
+	msg "missing installed EFI image usr/share/limine/$limine_efi"
+	exit 1
+fi
+
+efi_source_path="$ROOTDIR/usr/share/limine/$limine_efi"
+install -m644 "$efi_source_path" "$limine_efi_path"
+msg "installed ${LIMINE_EFI#/}"
+
+if [ "${LIMINE_BIOS}" = "1" ] && [ -f "$ROOTDIR/usr/share/limine/limine-bios.sys" ]; then
+	install -m644 "$ROOTDIR/usr/share/limine/limine-bios.sys" "$limine_dir_path/limine-bios.sys"
+	msg "installed ${LIMINE_HELPER_DIR#/}/limine-bios.sys"
+fi
+
+ensure_single_kernel_entry
+msg "updated kernel entry for ${version} in ${LIMINE_CONF#/}"
+
+config_hash=$(b2sum "$limine_conf_path" | awk '{print $1}')
+[ -n "$config_hash" ] || {
+	msg "failed to compute BLAKE2B hash for $LIMINE_CONF"
+	exit 1
+}
+
+if [ "${LIMINE_SECUREBOOT}" = "1" ]; then
+	require_root_secureboot_files || exit 1
+	sign_and_enroll || exit 1
+	msg "signed ${LIMINE_EFI#/} and enrolled config hash"
+else
+	tmp_enrolled="${limine_efi_path}.enrolled"
+	cp -f "$efi_source_path" "$tmp_enrolled" || {
+		msg "failed to prepare EFI image for config hash enrollment"
+		exit 1
+	}
+	usr/bin/limine enroll-config "$tmp_enrolled" "$config_hash" || {
+		msg "failed to enroll config hash into temporary EFI image"
+		rm -f "$tmp_enrolled"
+		exit 1
+	}
+	mv -f "$tmp_enrolled" "$limine_efi_path"
+	msg "enrolled config hash into ${LIMINE_EFI#/}"
+fi
