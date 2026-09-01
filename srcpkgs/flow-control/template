@@ -1,0 +1,47 @@
+# Template file for 'flow-control'
+pkgname=flow-control
+version=0.7.2
+revision=1
+build_style=zig-build
+makedepends="fontconfig-devel freetype-devel libglvnd-devel"
+depends="desktop-file-utils hicolor-icon-theme"
+short_desc="Fast, feature-rich programmer's text editor"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/neurocyte/flow"
+distfiles="https://github.com/neurocyte/flow/archive/d3283979addd0dd549091f6d803c8097974f9bac.tar.gz"
+checksum=@7c26d69a01ba873261bf77316aeae181a169ec482df1d2ceb556621d0155e2e7
+
+do_build() {
+	# Flow is built in development mode with explicit optimizations: the
+	# release mode of its build script requires git history (unavailable in
+	# source tarballs) and uses target triples incompatible with the
+	# zig-build style
+	# The terminal renderer needs no system libraries; use zig's bundled
+	# libc headers to avoid conflicts with the system ones
+	DESTDIR="zig-out" zig build -j"${XBPS_MAKEJOBS}" --prefix /usr \
+		--global-cache-dir /host/zig \
+		-Dtarget="${XBPS_ZIG_TARGET}" -Dcpu="${XBPS_ZIG_CPU}" \
+		-Doptimize=ReleaseFast -Dpie -Drenderer=terminal install
+
+	# The gui renderer links system GL/fontconfig/freetype; satisfy the
+	# linker from a staging directory so /usr/include stays out of the
+	# C/C++ header search path (it breaks zig's bundled libc++)
+	mkdir -p .zig-libs/lib
+	ln -sf /usr/lib/libGL.so* /usr/lib/libfontconfig.so* /usr/lib/libfreetype.so* .zig-libs/lib/
+	DESTDIR="zig-out" zig build -j"${XBPS_MAKEJOBS}" --prefix /usr \
+		--global-cache-dir /host/zig --search-prefix "$PWD/.zig-libs" \
+		-Dtarget="${XBPS_ZIG_TARGET}" -Dcpu="${XBPS_ZIG_CPU}" \
+		-Doptimize=ReleaseFast -Dpie -Drenderer=gui install
+}
+
+do_install() {
+	cp -r zig-out/* "${DESTDIR}"
+	rm -rf "${DESTDIR}/usr/bin/contrib"
+}
+
+post_install() {
+	vinstall contrib/share/applications/flow-control.desktop 644 usr/share/applications
+	vinstall contrib/share/icons/hicolor/192x192/apps/flow-control.png 644 usr/share/icons/hicolor/192x192/apps
+	vlicense LICENSE
+}
