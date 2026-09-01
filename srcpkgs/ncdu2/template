@@ -1,6 +1,6 @@
 # Template file for 'ncdu2'
 pkgname=ncdu2
-version=2.7
+version=2.9.2
 revision=1
 build_style=zig-build
 configure_args="-Dpie"
@@ -12,7 +12,7 @@ license="MIT"
 homepage="https://dev.yorhel.nl/ncdu"
 changelog="https://dev.yorhel.nl/ncdu/changes2"
 distfiles="https://dev.yorhel.nl/download/ncdu-${version}.tar.gz"
-checksum=b218cc14a2bb9852cf951db4e21aec8980e7a8c3aca097e3aa3417f20eb93000
+checksum=e91135281cb66569f2ca4c0bac277246991e7e52524c0ca8cba3de5c8e81cec9
 conflicts="ncdu"
 
 post_install() {
