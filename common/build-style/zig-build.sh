@@ -1,5 +1,5 @@
 do_build() {
-	local zig_target zig_cpu
+	local zig_target zig_cpu zig_cross_args
 
 	# TODO: This duplication between build-profiles and cross-profiles
 	# is totally unnecessary. It would be nice if there was some way to
@@ -12,15 +12,22 @@ do_build() {
 		zig_cpu="${XBPS_ZIG_CPU}"
 	fi
 
-	# Inform zig of the required libc include paths.
-	cat > xbps_zig_libc.txt <<-EOF
-		include_dir=${XBPS_CROSS_BASE}/usr/include
-		sys_include_dir=${XBPS_CROSS_BASE}/usr/include
-		crt_dir=${XBPS_CROSS_BASE}/usr/lib
-		msvc_lib_dir=
-		kernel32_lib_dir=
-		gcc_dir=
-	EOF
+	# Inform zig of the required libc include paths for cross builds.
+	# Native builds detect the system libc on their own and passing an
+	# empty sysroot breaks C compilation with newer zig versions.
+	if [ "$CROSS_BUILD" ]; then
+		cat > xbps_zig_libc.txt <<-EOF
+			include_dir=${XBPS_CROSS_BASE}/usr/include
+			sys_include_dir=${XBPS_CROSS_BASE}/usr/include
+			crt_dir=${XBPS_CROSS_BASE}/usr/lib
+			msvc_lib_dir=
+			kernel32_lib_dir=
+			gcc_dir=
+		EOF
+		zig_cross_args="--sysroot ${XBPS_CROSS_BASE} --search-prefix ${XBPS_CROSS_BASE}/usr --libc xbps_zig_libc.txt"
+	else
+		zig_cross_args="--search-prefix /usr"
+	fi
 
 	# The Zig build system only has a single install step, there is no
 	# way to build artifacts for a given prefix and then install those artifacts
@@ -29,12 +36,10 @@ do_build() {
 	# We use zig-out to avoid path conflicts as it is the default install
 	# prefix used by the zig build system.
 	DESTDIR="zig-out" zig build \
-		${makejobs} \
-		--sysroot "${XBPS_CROSS_BASE}" \
-		--search-prefix "${XBPS_CROSS_BASE}/usr" \
+		-j"${XBPS_MAKEJOBS}" \
+		${zig_cross_args} \
 		--prefix /usr \
 		--global-cache-dir /host/zig \
-		--libc xbps_zig_libc.txt \
 		--release=safe \
 		--verbose \
 		-Dtarget="${zig_target}" -Dcpu="${zig_cpu}" \
