@@ -25,6 +25,8 @@ do_build() {
 			gcc_dir=
 		EOF
 		zig_cross_args="--sysroot ${XBPS_CROSS_BASE} --search-prefix ${XBPS_CROSS_BASE}/usr --libc xbps_zig_libc.txt"
+	else
+		zig_cross_args="--search-prefix /usr"
 	fi
 
 	# The Zig build system only has a single install step, there is no
