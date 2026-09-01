@@ -1,0 +1,16 @@
+# Template file for 'zat'
+pkgname=zat
+version=1.9.0
+revision=1
+build_style=zig-build
+configure_args="-Dpie"
+short_desc="Syntax highlighting cat utility with vscode theme support"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/neurocyte/zat"
+distfiles="https://github.com/neurocyte/zat/archive/6f448c81580870725c951586e77d303cb4e8b3bb.tar.gz"
+checksum=@cd88a6b959c10575878fa5056fbe177bb36dda6f47f9a44ee4fa65e3a55db456
+
+post_install() {
+	vlicense LICENSE
+}
