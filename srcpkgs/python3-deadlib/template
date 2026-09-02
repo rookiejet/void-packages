@@ -1,0 +1,193 @@
+# Template file for 'python3-deadlib'
+pkgname=python3-deadlib
+version=3.13.0
+revision=1
+build_style=python3-pep517
+build_helper="rust"
+metapackage=yes
+hostmakedepends="cargo maturin python3-build python3-installer python3-setuptools"
+makedepends="libxcrypt-devel python3-devel rust-std"
+short_desc="Redistribution of Python's removed standard-library modules"
+maintainer="yosh <yosh-git@riseup.net>"
+license="Python-2.0, LGPL-2.1-only"
+homepage="https://github.com/youknowone/python-deadlib"
+distfiles="${homepage}/archive/refs/tags/v${version}.tar.gz"
+checksum=bde43692d5a1de2a33777ff99f4c4344f7cca3a49362b2484a13870706194613
+# Packages have separate test suites and no common test runner.
+make_check=no
+
+# distutils is not included: upstream declares it incompatible with Python 3.13.
+subpackages="python3-aifc python3-asynchat python3-asyncore python3-cgi
+ python3-cgitb python3-chunk python3-crypt python3-deprecated-crypt-alternative
+ python3-imghdr python3-mailcap python3-nntplib python3-pipes python3-smtpd
+ python3-sndhdr python3-sunau python3-telnetlib python3-uu python3-xdrlib"
+depends="${subpackages}"
+
+_build_module() {
+	local module="$1"
+	(
+		cd "${module}"
+		python3 -m build --no-isolation --wheel
+	)
+}
+
+do_build() {
+	local module
+	for module in aifc asynchat asyncore cgi cgitb chunk crypt imghdr mailcap nntplib pipes smtpd sndhdr sunau telnetlib uu xdrlib; do
+		_build_module "${module}"
+	done
+
+	(
+		cd _crypt
+		maturin build -i /usr/bin/python3 -o dist --release --target "${RUST_TARGET}" --manylinux off
+		# Cross builds need a target-independent tag: the host Python determines
+		# maturin's tag, although the extension was built for ${RUST_TARGET}.
+		if [ -n "${CROSS_BUILD}" ]; then
+			mv dist/deprecated_crypt_alternative-*.whl \
+				dist/deprecated_crypt_alternative-${version}-py3-none-any.whl
+		fi
+	)
+}
+
+do_install() {
+	local module
+	for module in aifc asynchat asyncore cgi cgitb chunk crypt imghdr mailcap nntplib pipes smtpd sndhdr sunau telnetlib uu xdrlib; do
+		python3 -m installer --destdir "${DESTDIR}" --no-compile-bytecode \
+			"${module}"/dist/*.whl
+	done
+	python3 -m installer --destdir "${DESTDIR}" --no-compile-bytecode _crypt/dist/*.whl
+
+	vlicense aifc/LICENSE
+}
+
+
+python3-aifc_package() {
+	short_desc+=" - AIFF and AIFF-C audio files support"
+	depends="python3-chunk"
+	pkg_install() {
+		vmove "${py3_sitelib}/aifc"
+	}
+}
+
+python3-asynchat_package() {
+	short_desc+=" - asyncore-based asynchronous socket command/response support"
+	depends="python3-asyncore"
+	pkg_install() {
+		vmove "${py3_sitelib}/asynchat"
+	}
+}
+
+python3-asyncore_package() {
+	short_desc+=" - asynchronous socket handler"
+	pkg_install() {
+		vmove "${py3_sitelib}/asyncore"
+	}
+}
+
+python3-cgi_package() {
+	short_desc+=" - CGI support"
+	pkg_install() {
+		vmove "${py3_sitelib}/cgi"
+	}
+}
+
+python3-cgitb_package() {
+	short_desc+=" - CGI traceback support"
+	pkg_install() {
+		vmove "${py3_sitelib}/cgitb"
+	}
+}
+
+python3-chunk_package() {
+	short_desc+=" - IFF chunk support"
+	pkg_install() {
+		vmove "${py3_sitelib}/chunk"
+	}
+}
+
+python3-crypt_package() {
+	short_desc+=" - password hashing support"
+	depends="python3-deprecated-crypt-alternative"
+	pkg_install() {
+		vmove "${py3_sitelib}/crypt"
+	}
+}
+
+python3-deprecated-crypt-alternative_package() {
+	short_desc="Replacement _crypt module for Python 3.13+"
+	pkg_install() {
+		vmove "${py3_sitelib}/_crypt"
+	}
+}
+
+python3-imghdr_package() {
+	short_desc+=" - image type identification"
+	pkg_install() {
+		vmove "${py3_sitelib}/imghdr"
+	}
+}
+
+python3-mailcap_package() {
+	short_desc+=" - mailcap file handling"
+	pkg_install() {
+		vmove "${py3_sitelib}/mailcap"
+	}
+}
+
+python3-nntplib_package() {
+	short_desc+=" - Network News Transfer Protocol client"
+	pkg_install() {
+		vmove "${py3_sitelib}/nntplib"
+	}
+}
+
+python3-pipes_package() {
+	short_desc+=" - shell pipeline templates"
+	pkg_install() {
+		vmove "${py3_sitelib}/pipes"
+	}
+}
+
+python3-smtpd_package() {
+	short_desc+=" - SMTP server"
+	depends="python3-asynchat python3-asyncore"
+	pkg_install() {
+		vmove "${py3_sitelib}/smtpd"
+	}
+}
+
+python3-sndhdr_package() {
+	short_desc+=" - sound file type identification"
+	depends="python3-aifc"
+	pkg_install() {
+		vmove "${py3_sitelib}/sndhdr"
+	}
+}
+
+python3-sunau_package() {
+	short_desc+=" - Sun AU audio files support"
+	pkg_install() {
+		vmove "${py3_sitelib}/sunau"
+	}
+}
+
+python3-telnetlib_package() {
+	short_desc+=" - Telnet client"
+	pkg_install() {
+		vmove "${py3_sitelib}/telnetlib"
+	}
+}
+
+python3-uu_package() {
+	short_desc+=" - uuencode and uudecode support"
+	pkg_install() {
+		vmove "${py3_sitelib}/uu"
+	}
+}
+
+python3-xdrlib_package() {
+	short_desc+=" - External Data Representation support"
+	pkg_install() {
+		vmove "${py3_sitelib}/xdrlib"
+	}
+}
