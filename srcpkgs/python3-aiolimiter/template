@@ -1,0 +1,17 @@
+# Template file for 'python3-aiolimiter'
+pkgname=python3-aiolimiter
+version=1.2.1
+revision=1
+build_style=python3-pep517
+hostmakedepends="python3-poetry-core"
+depends="python3"
+short_desc="Asyncio rate limiter, a leaky bucket implementation"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/mjpieters/aiolimiter"
+distfiles="${PYPI_SITE}/a/aiolimiter/aiolimiter-${version}.tar.gz"
+checksum=e02a37ea1a855d9e832252a105420ad4d15011505512a1a1d814647451b5cca9
+
+post_install() {
+	vlicense LICENSE.txt
+}
