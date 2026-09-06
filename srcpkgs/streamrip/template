@@ -1,0 +1,19 @@
+# Template file for 'streamrip'
+pkgname=streamrip
+version=2.2.0
+revision=1
+build_style=python3-pep517
+hostmakedepends="python3-poetry-core"
+depends="python3-aiofiles python3-aiohttp python3-aiodns
+ python3-aiolimiter python3-appdirs python3-click
+ python3-click-help-colors python3-deezer-py python3-m3u8
+ python3-mutagen python3-pathvalidate python3-Pillow
+ python3-pycryptodomex python3-requests python3-rich
+ python3-simple-term-menu python3-tomlkit ffmpeg"
+checkdepends="${depends} python3-pytest python3-pytest-asyncio python3-pytest-mock"
+short_desc="Scriptable music downloader for Qobuz, Tidal, Deezer and SoundCloud"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://github.com/nathom/streamrip"
+distfiles="https://github.com/nathom/streamrip/archive/refs/tags/v${version}.tar.gz"
+checksum=@60870178dca91e6a0463547ee4dbcbf7744791db3832d23b45438e54a2d76ccb
