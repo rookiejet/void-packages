@@ -1,0 +1,17 @@
+# Template file for 'python3-simple-term-menu'
+pkgname=python3-simple-term-menu
+version=1.6.6
+revision=1
+build_style=python3-module
+hostmakedepends="python3-setuptools"
+depends="python3"
+short_desc="Simple terminal menu for Python"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/IngoMeyer441/simple-term-menu"
+distfiles="${PYPI_SITE}/s/simple-term-menu/simple_term_menu-${version}.tar.gz"
+checksum=9813d36f5749d62d200a5599b1ec88469c71378312adc084c00c00bfbb383893
+
+post_install() {
+	vlicense LICENSE
+}
