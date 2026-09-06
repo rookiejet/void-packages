@@ -1,0 +1,2 @@
+site="https://github.com/nathom/streamrip/releases"
+pattern="(?<=releases/tag/v)[0-9.]+"
