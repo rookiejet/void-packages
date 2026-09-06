@@ -1,0 +1,17 @@
+# Template file for 'python3-m3u8'
+pkgname=python3-m3u8
+version=0.9.0
+revision=1
+build_style=python3-module
+hostmakedepends="python3-setuptools"
+depends="python3-iso8601"
+short_desc="Python m3u8 playlist parser"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/globocom/m3u8"
+distfiles="${PYPI_SITE}/m/m3u8/m3u8-${version}.tar.gz"
+checksum=3ee058855c430dc364db6b8026269d2b4c1894b198bcc5c824039c551c05f497
+
+post_install() {
+	vlicense LICENSE
+}
