@@ -1,0 +1,23 @@
+# Template file for 'meka'
+pkgname=meka
+version=0.54.1
+revision=1
+build_style=cargo
+makedepends="pkgconf sqlite-devel"
+short_desc="General purpose AI agent harness"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://github.com/k4yt3x/meka"
+changelog="https://github.com/k4yt3x/meka/raw/refs/heads/master/CHANGELOG.md"
+distfiles="https://github.com/k4yt3x/meka/archive/refs/tags/${version}.tar.gz"
+checksum=a6ff07c0dc2c016c5e72580d1e8d0e7d945662e5be99e35ba1cc311800efa75d
+
+pre_build() {
+	vsed -i -e 's/rusqlite\s*=\s*{\sversion\s=\s*"\([^"]\+\)"[^}]*}/rusqlite = "\1"/' Cargo.toml
+	vsed -i -e '/^name = "libsqlite3-sys"$/,/^\]$/ { /^ "cc",$/d }' Cargo.lock
+}
+
+post_install() {
+	vdoc README.md
+	vlicense LICENSE
+}
