@@ -1,0 +1,1557 @@
+From 315474712de1da243a40e121d7a8f8575e2a2ff0 Mon Sep 17 00:00:00 2001
+From: Mazin Fadl <mazen@illumed.net>
+Date: Tue, 15 Sep 2026 17:05:17 -0400
+Subject: [PATCH] feat: support OpenCode Go, its session header and usage endpoint
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 7239932..b28dd4d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+
+ ## [Unreleased]
+
++### Added
++
++- Three `opencode-go` backends (one per protocol) reach OpenCode Go's subscription.
++- OpenCode Go requests carry the required `x-opencode-session` header per conversation.
++- `meka account usage` reports an OpenCode Go subscription's dollar-budget windows.
++
+ ### Security
+
+ - RUSTSEC-2026-0285: `rustls` 0.23.45 closes a TLS 1.3 handshake flaw in the version shipped before.
+diff --git a/docs/book/src/SUMMARY.md b/docs/book/src/SUMMARY.md
+index 2b25ea3..a6a7b48 100644
+--- a/docs/book/src/SUMMARY.md
++++ b/docs/book/src/SUMMARY.md
+@@ -39,6 +39,7 @@
+ - [OpenAI Chat Completions](./providers/openai-chat-completions.md)
+ - [OpenAI Responses](./providers/openai-responses.md)
+ - [ChatGPT subscription](./providers/chatgpt-subscription.md)
++- [OpenCode Go](./providers/opencode-go.md)
+
+ # Tools
+
+diff --git a/docs/book/src/configuration/config-file.md b/docs/book/src/configuration/config-file.md
+index 02d90cb..1ffe670 100644
+--- a/docs/book/src/configuration/config-file.md
++++ b/docs/book/src/configuration/config-file.md
+@@ -125,11 +125,16 @@ The driver the account uses (required).
+ | `openai-chat-completions` | OpenAI Chat Completions, `POST {base}/chat/completions` | API key |
+ | `openai-responses` | OpenAI Responses, `POST {base}/responses` | API key |
+ | `chatgpt-subscription` | OpenAI Responses, against `chatgpt.com/backend-api/codex` | ChatGPT subscription OAuth |
++| `opencode-go` | OpenAI Chat Completions, against `opencode.ai/zen/go/v1` | API key |
++| `opencode-go-responses` | OpenAI Responses, against `opencode.ai/zen/go/v1` | API key |
++| `opencode-go-messages` | Anthropic Messages, against `opencode.ai/zen/go/v1` | API key |
+
+ An API-key backend is named for the protocol it speaks, because `base_url` decides the endpoint and
+ the same protocol is served by many vendors. A subscription backend is named for the product,
+-because the endpoint is fixed and what the account holds is a billing relationship. See [Providers
+-overview](../providers/overview.md) for which servers implement which protocol.
++because the endpoint is fixed and what the account holds is a billing relationship. The three
++`opencode-go` backends are one product, OpenCode Go's subscription, reached over all three
++protocols; see [OpenCode Go](../providers/opencode-go.md). For which servers implement which
++protocol, see [Providers overview](../providers/overview.md).
+
+ ### `base_url`
+
+@@ -144,6 +149,7 @@ If not set, defaults to:
+ - `https://api.openai.com/v1` for the `openai-chat-completions` and `openai-responses` backends
+ - `https://chatgpt.com` for the `chatgpt-subscription` backend (request path is `/backend-api/codex/responses`)
+ - `https://api.anthropic.com` for the `anthropic-messages` and `claude-subscription` backends
++- `https://opencode.ai/zen/go/v1` for the three `opencode-go` backends
+
+ Set it with `meka account add <name> --base-url <url>`, or edit the account table by hand.
+
+@@ -365,7 +371,7 @@ store, never the config file.
+
+ | Command | Action |
+ |---|---|
+-| `meka account add <name> [--backend B] [--base-url U] [--client-id ID] [--oauth-token-url U] [--api-key-stdin]` | Add an account. Prompts for the backend and base URL when not flagged, then acquires the secret (OAuth login for `claude-subscription` / `chatgpt-subscription`, API-key prompt for `anthropic-messages` / `openai-chat-completions` / `openai-responses`). `--api-key-stdin` reads the key from stdin instead, and then needs `--backend` as a flag too, since a prompt would consume the piped key; it is refused for the two subscription backends, which have no key to read. `--client-id` and `--oauth-token-url` are dropped with a warning on an API-key backend, which never reads them. `device_id` has no flag, because meka resolves and persists it itself. |
++| `meka account add <name> [--backend B] [--base-url U] [--client-id ID] [--oauth-token-url U] [--api-key-stdin]` | Add an account. Prompts for the backend and base URL when not flagged, then acquires the secret (OAuth login for `claude-subscription` / `chatgpt-subscription`, API-key prompt for `anthropic-messages` / `openai-chat-completions` / `openai-responses` / the `opencode-go` backends). `--api-key-stdin` reads the key from stdin instead, and then needs `--backend` as a flag too, since a prompt would consume the piped key; it is refused for the two subscription backends, which have no key to read. `--client-id` and `--oauth-token-url` are dropped with a warning on an API-key backend, which never reads them. `device_id` has no flag, because meka resolves and persists it itself. |
+ | `meka account list` | List configured accounts with backend, base URL, and whether each has a stored credential; `--format json` prints the same as one document. Also names any stored credential that no account claims (see [Leftover credentials](#leftover-credentials)). |
+ | `meka account login <name> [--api-key-stdin]` | Re-acquire the secret for an existing account (re-authenticate, recover from a dead OAuth refresh token, or rotate an API key). `--api-key-stdin` reads the key from stdin for scripted rotation, and is refused on the subscription backends, which have no key to read. Every setting on the account is kept. |
+ | `meka account remove <name>` | Delete the stored credential from the store and remove the `[accounts.<name>]` entry from the config file. Refused while any profile names the account, naming the profiles: remove or repoint those first. Works on a name with only one of the two halves, so it can clean up after a hand-edit. |
+diff --git a/docs/book/src/configuration/overview.md b/docs/book/src/configuration/overview.md
+index 96e82d3..c388bfc 100644
+--- a/docs/book/src/configuration/overview.md
++++ b/docs/book/src/configuration/overview.md
+@@ -92,8 +92,8 @@ The credential for a session's profile is loaded from the store, keyed by the pr
+ name. It is acquired interactively:
+
+ - `meka account add <name>` runs the OAuth login (`claude-subscription`, `chatgpt-subscription`) or
+-  prompts for the API key (`anthropic-messages`, `openai-chat-completions`, `openai-responses`) when
+-  the account is created.
++  prompts for the API key (`anthropic-messages`, `openai-chat-completions`, `openai-responses`, the
++  `opencode-go` backends) when the account is created.
+ - `meka account login <name>` re-acquires it for an existing account (rotate an API key, recover
+   from a dead OAuth refresh token), keeping every setting on the account and every profile on it.
+   Add `--api-key-stdin` to pipe the key in for scripted rotation.
+diff --git a/docs/book/src/introduction.md b/docs/book/src/introduction.md
+index 3579a72..2ddc4d4 100644
+--- a/docs/book/src/introduction.md
++++ b/docs/book/src/introduction.md
+@@ -22,7 +22,7 @@ The same agent core is exposed through four front-ends:
+ ## What the harness provides
+
+ - **Built-in tools**: file read/write/edit, glob search, regex content search (ripgrep), web fetch and shell command execution
+-- **Pluggable backends**: `anthropic-messages`, `claude-subscription`, `openai-chat-completions`, `openai-responses`, `chatgpt-subscription`, and any endpoint serving one of those protocols
++- **Pluggable backends**: `anthropic-messages`, `claude-subscription`, `openai-chat-completions`, `openai-responses`, `chatgpt-subscription`, the three `opencode-go` backends, and any endpoint serving one of those protocols
+ - **MCP support**: extend the agent with tools, resources, and prompts from external MCP servers
+ - **Permission model**: control what the agent can do (none/read/workspace/unrestricted), switchable mid-session
+ - **Sessions**: conversations persisted in SQLite; resume, export, or compact any session
+diff --git a/docs/book/src/providers/opencode-go.md b/docs/book/src/providers/opencode-go.md
+new file mode 100644
+index 0000000..504d2d1
+--- /dev/null
++++ b/docs/book/src/providers/opencode-go.md
+@@ -0,0 +1,89 @@
++# OpenCode Go
++
++[OpenCode Go](https://opencode.ai/docs/go) is OpenCode's flat-rate subscription to curated open
++coding models: one API key, bounded monthly cost, and a catalog that changes as models are tested
++and added. The same subscription serves its models over three protocol endpoints, so meka models it
++as three backends, one per protocol:
++
++| Backend | Protocol | Current model families (see below) |
++|---------|----------|-------------------------------------|
++| `opencode-go` | OpenAI Chat Completions | GLM, Kimi, DeepSeek, MiMo, LongCat, Hy, Omen |
++| `opencode-go-responses` | OpenAI Responses | Grok, GPT-5.6 Luna, Muse Spark |
++| `opencode-go-messages` | Anthropic Messages | MiniMax, Qwen |
++
++The per-model endpoint is OpenCode's own routing: each model is served on one of the three, and a
++request in the wrong shape is rejected. The mapping changes as the catalog does, so meka does not
++bundle a copy; OpenCode's [Go docs](https://opencode.ai/docs/go) list the current table. `meka
++account add` offers all three, and `meka profile add` suggests the current headline model of each
++family (`kimi-k3`, `gpt-5.6-luna`, `minimax-m3`).
++
++## Configuration
++
++| Setting | Value |
++|---------|-------|
++| Account `backend` | `opencode-go`, `opencode-go-responses`, or `opencode-go-messages` |
++| Default base URL | `https://opencode.ai/zen/go/v1` |
++| Credential | API key from the [OpenCode console](https://opencode.ai/auth), kept in the store |
++| Auth method | Bearer token (`Authorization: Bearer <key>`) |
++
++The same API key works for every backend, so one subscription can reach all three protocol families
++through three accounts:
++
++```bash
++meka account add oc-go --backend opencode-go
++meka account add oc-go-responses --backend opencode-go-responses
++meka account add oc-go-messages --backend opencode-go-messages
++meka profile add coding --account oc-go --model kimi-k3
++```
++
++### Config file
++
++The commands write this for you (the key stays in the store, not here):
++
++```toml
++[accounts.oc-go]
++backend = "opencode-go"
++
++[accounts.oc-go-responses]
++backend = "opencode-go-responses"
++
++[accounts.oc-go-messages]
++backend = "opencode-go-messages"
++
++[profiles.coding]
++account = "oc-go"
++model   = "kimi-k3"
++```
++
++## The session header
++
++OpenCode's docs require every inference request to carry a stable per-conversation id in
++`x-opencode-session`, which the gateway uses to route a conversation's requests to one upstream and
++to prompt-cache its prefix. Requests without it fail. meka sends the session's own id, the same
++uuid a resume keeps, on both streaming and non-streaming requests, alongside a `meka/<version>`
++user agent. No configuration is needed; the header is part of what these three backends are.
++
++## Usage
++
++`meka account usage` shows the three dollar-budget windows every Go subscription has, read from the
++gateway's usage endpoint with the account's API key:
++
++```console
++$ meka account usage oc-go
++Usage for 'oc-go':
++  5-hour (rolling)  41.5%
++  Weekly            12.0%
++  Monthly           58.0%
++```
++
++The windows reset on the gateway's schedule; a window at 100% is a `rate-limited` subscription
++until it does. When the account also has Zen balance with **Use balance** enabled, requests fall
++back to it instead of failing.
++
++## Supported models
++
++Any model OpenCode Go serves on the protocol the backend speaks; the model string is forwarded
++verbatim. Get the current catalog and its per-model endpoint from OpenCode's Go docs above, and
++see also `GET https://opencode.ai/zen/go/v1/models` for the machine-readable id list. A profile's
++`context_window` defaults to 1M, which covers every current Go model; state a smaller window on the
++profile if you want compaction to fire earlier.
+\ No newline at end of file
+diff --git a/docs/book/src/providers/overview.md b/docs/book/src/providers/overview.md
+index 85128b0..9c6af67 100644
+--- a/docs/book/src/providers/overview.md
++++ b/docs/book/src/providers/overview.md
+@@ -1,6 +1,6 @@
+ # Providers overview
+
+-A backend is how meka reaches an LLM inference service. meka ships with five, each selectable as an account's `backend`:
++A backend is how meka reaches an LLM inference service. meka ships with eight, each selectable as an account's `backend`:
+
+ | Backend | Protocol | Endpoint | Auth |
+ |---------|----------|----------|------|
+@@ -9,6 +9,9 @@ A backend is how meka reaches an LLM inference service. meka ships with five, ea
+ | [`openai-chat-completions`](./openai-chat-completions.md) | OpenAI Chat Completions | `{base}/chat/completions` | API key |
+ | [`openai-responses`](./openai-responses.md) | OpenAI Responses | `{base}/responses` | API key |
+ | [`chatgpt-subscription`](./chatgpt-subscription.md) | OpenAI Responses | `chatgpt.com/backend-api/codex/responses` | ChatGPT subscription |
++| [`opencode-go`](./opencode-go.md) | OpenAI Chat Completions | `opencode.ai/zen/go/v1/chat/completions` | API key |
++| [`opencode-go-responses`](./opencode-go.md) | OpenAI Responses | `opencode.ai/zen/go/v1/responses` | API key |
++| [`opencode-go-messages`](./opencode-go.md) | Anthropic Messages | `opencode.ai/zen/go/v1/messages` | API key |
+
+ **A backend names the wire protocol, not a vendor.** That is deliberate, and it cuts both ways. One vendor can serve several protocols: OpenAI publishes Chat Completions *and* Responses, and they are different request shapes, not options on one. One protocol is served by many vendors: `/v1/messages` is implemented by Anthropic, Amazon Bedrock, Databricks, LiteLLM and Ollama, so calling it "the Claude API" would misname it the moment you point it elsewhere.
+
+@@ -108,6 +111,14 @@ Three backends, two protocols:
+
+ The first two differ by protocol; the last two differ only by auth and endpoint.
+
++## OpenCode Go: one subscription, three protocols
++
++[`opencode-go`](./opencode-go.md), `opencode-go-responses` and `opencode-go-messages` are one
++product: OpenCode's flat-rate subscription, billed by an API key, whose catalog is served across
++the three protocols meka speaks. Which backend a model needs is OpenCode's routing, not meka's;
++pick the backend whose protocol the model is served on. Every request these backends send carries
++the conversation's id in `x-opencode-session`, which the gateway requires.
++
+ ## Streaming vs non-streaming
+
+ By default, meka uses streaming mode: tokens appear in the terminal as they are generated. Use `--no-stream` to wait for the complete response before displaying it.
+diff --git a/docs/book/src/usage/account.md b/docs/book/src/usage/account.md
+index 74d69c7..b87f9fc 100644
+--- a/docs/book/src/usage/account.md
++++ b/docs/book/src/usage/account.md
+@@ -8,10 +8,11 @@ a model, which is the profile's. The requested data goes to **stdout**; notes an
+ **stderr**, so `meka account … 2>/dev/null | jq` stays clean. The rest of the `meka account` suite
+ (`add`, `login`, `list`, `remove`) is documented under [Config file](../configuration/config-file.md#meka-account-cli).
+
+-Availability is per backend: `claude-subscription` and `chatgpt-subscription` (subscription OAuth) support these;
+-for `usage` and `stats`, API-key backends, OpenAI-compatible endpoints and Ollama print a short
+-"not available" note and exit non-zero. `whoami` works on any account: it fills the fields it can
+-and fails only when the credential itself is invalid.
++Availability is per backend: `claude-subscription` and `chatgpt-subscription` (subscription OAuth)
++and the three `opencode-go` backends support these; for `usage` and `stats`, the other API-key
++backends, OpenAI-compatible endpoints and Ollama print a short "not available" note and exit
++non-zero. `whoami` works on any account: it fills the fields it can and fails only when the
++credential itself is invalid.
+
+ ## `meka account usage`
+
+diff --git a/docs/book/src/usage/http-api.md b/docs/book/src/usage/http-api.md
+index 95decbd..54171ac 100644
+--- a/docs/book/src/usage/http-api.md
++++ b/docs/book/src/usage/http-api.md
+@@ -498,7 +498,7 @@ Reasoning streams in chunks, one event per chunk, the way `assistant_text.delta`
+
+ The arguments are written between `tool_call.composing` and `tool_call.executing` on the same `id`, which makes that interval the only thing on the stream that separates the agent *writing a message* from the agent doing anything else. Assistant text is usually narration around a call rather than the reply itself, and by `tool_call.executing` the arguments are already finished. A client drawing a typing indicator for a tool like an MCP `send_message` raises it on the first and drops it on the second. The payload is the id and the name because nothing else has streamed yet: which conversation a message is for is not known until `tool_call.executing`.
+
+-Three limits. The event exists only when meka streams from its provider, so a server started with `--no-stream` receives each call whole and emits `tool_call.executing` with nothing before it. The pairing is not guaranteed, because a turn that fails or is canceled mid-call emits `tool_call.composing` with nothing after it, so close per-`id` state on the terminal event as well. And the interval is only wide on backends that stream a call as it is written (`anthropic-messages`, `claude-subscription`, `openai-responses`, `chatgpt-subscription`); `openai-chat-completions` resolves each call's name and arguments together when the stream ends, so there the two events arrive back to back.
++Three limits. The event exists only when meka streams from its provider, so a server started with `--no-stream` receives each call whole and emits `tool_call.executing` with nothing before it. The pairing is not guaranteed, because a turn that fails or is canceled mid-call emits `tool_call.composing` with nothing after it, so close per-`id` state on the terminal event as well. And the interval is only wide on backends that stream a call as it is written (`anthropic-messages`, `claude-subscription`, `openai-responses`, `chatgpt-subscription`, `opencode-go-messages`, `opencode-go-responses`); `openai-chat-completions` and `opencode-go` resolve each call's name and arguments together when the stream ends, so there the two events arrive back to back.
+
+ #### Notices and pauses
+
+diff --git a/docs/book/src/usage/interactive-mode.md b/docs/book/src/usage/interactive-mode.md
+index 872435b..7ab14e0 100644
+--- a/docs/book/src/usage/interactive-mode.md
++++ b/docs/book/src/usage/interactive-mode.md
+@@ -198,7 +198,7 @@ Account usage
+   Weekly             [----------]   2% used  (resets in 22h 50m, 2026-07-02 13:00 +02:00)
+ ```
+
+-This is distinct from `/status`, which reports this session's own token counters. `/usage` queries the upstream service for your whole-account subscription limits. It works only for the two subscription backends, which expose a usage endpoint (`claude-subscription`'s 5-hour and weekly windows; `chatgpt-subscription`'s primary/secondary windows plus plan and credit balance). For an API-key backend it prints a short note that usage is not available there instead. The same command is available under ACP.
++This is distinct from `/status`, which reports this session's own token counters. `/usage` queries the upstream service for your whole-account subscription limits. It works only for the subscription-backed backends, which expose a usage endpoint: `claude-subscription`'s 5-hour and weekly windows, `chatgpt-subscription`'s primary/secondary windows plus plan and credit balance, and the three `opencode-go` backends' 5-hour, weekly and monthly windows. For an API-key backend it prints a short note that usage is not available there instead. The same command is available under ACP.
+
+ ### `/compact`
+
+diff --git a/src/cli/account.rs b/src/cli/account.rs
+index bf96763..7a4014f 100644
+--- a/src/cli/account.rs
++++ b/src/cli/account.rs
+@@ -675,7 +675,10 @@ fn credential_kind(backend: config::Backend) -> CredentialKind {
+         config::Backend::ChatGptSubscription => CredentialKind::ChatGptLogin,
+         config::Backend::AnthropicMessages
+         | config::Backend::OpenAiChatCompletions
+-        | config::Backend::OpenAiResponses => CredentialKind::ApiKey,
++        | config::Backend::OpenAiResponses
++        | config::Backend::OpenCodeGo
++        | config::Backend::OpenCodeGoMessages
++        | config::Backend::OpenCodeGoResponses => CredentialKind::ApiKey,
+     }
+ }
+
+@@ -1023,7 +1026,7 @@ pub(super) fn prompt_line(prompt: &str) -> io::Result<String> {
+ /// still speaks. The menu entries, in the order they are offered. Separate from [`prompt_backend`]
+ /// so a test can check it against [`config::Backend::ALL`]: this is the last hand-written backend
+ /// list, and a backend missing from it is simply never offered interactively, with nothing failing.
+-fn backend_menu() -> [(config::Backend, &'static str); 5] {
++fn backend_menu() -> [(config::Backend, &'static str); 8] {
+     [
+         (
+             config::Backend::ClaudeSubscription,
+@@ -1045,6 +1048,18 @@ fn backend_menu() -> [(config::Backend, &'static str); 5] {
+             config::Backend::OpenAiResponses,
+             "OpenAI-compatible Responses API key",
+         ),
++        (
++            config::Backend::OpenCodeGo,
++            "OpenCode Go subscription API key (Chat Completions protocol)",
++        ),
++        (
++            config::Backend::OpenCodeGoResponses,
++            "OpenCode Go subscription API key (Responses protocol)",
++        ),
++        (
++            config::Backend::OpenCodeGoMessages,
++            "OpenCode Go subscription API key (Anthropic Messages protocol)",
++        ),
+     ]
+ }
+
+diff --git a/src/cli/profile.rs b/src/cli/profile.rs
+index af0dbbf..39fe7b3 100644
+--- a/src/cli/profile.rs
++++ b/src/cli/profile.rs
+@@ -191,6 +191,11 @@ fn default_model_for(backend: config::Backend) -> &'static str {
+         config::Backend::OpenAiChatCompletions
+         | config::Backend::OpenAiResponses
+         | config::Backend::ChatGptSubscription => "gpt-5.6-sol",
++        // The current headline model per protocol family, per OpenCode's docs; the user picks any
++        // of the catalog's models on the matching protocol.
++        config::Backend::OpenCodeGo => "kimi-k3",
++        config::Backend::OpenCodeGoResponses => "gpt-5.6-luna",
++        config::Backend::OpenCodeGoMessages => "minimax-m3",
+     }
+ }
+
+@@ -1457,6 +1462,15 @@ mod tests {
+             default_model_for(config::Backend::ChatGptSubscription),
+             "gpt-5.6-sol"
+         );
++        assert_eq!(default_model_for(config::Backend::OpenCodeGo), "kimi-k3");
++        assert_eq!(
++            default_model_for(config::Backend::OpenCodeGoResponses),
++            "gpt-5.6-luna"
++        );
++        assert_eq!(
++            default_model_for(config::Backend::OpenCodeGoMessages),
++            "minimax-m3"
++        );
+     }
+
+     /// Every thinking flag must be *dropped* on a backend whose requests have no thinking field,
+diff --git a/src/config.rs b/src/config.rs
+index 2cd05b5..fe33590 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -797,12 +797,15 @@ pub(crate) struct SessionConfig {
+
+ impl Backend {
+     /// Every backend, in the order the names sort, which is the order a user is shown them.
+-    pub(crate) const ALL: [Backend; 5] = [
++    pub(crate) const ALL: [Backend; 8] = [
+         Self::AnthropicMessages,
+         Self::ChatGptSubscription,
+         Self::ClaudeSubscription,
+         Self::OpenAiChatCompletions,
+         Self::OpenAiResponses,
++        Self::OpenCodeGo,
++        Self::OpenCodeGoMessages,
++        Self::OpenCodeGoResponses,
+     ];
+
+     /// The name an account's `backend` gives this backend.
+@@ -813,6 +816,9 @@ impl Backend {
+             Self::ClaudeSubscription => "claude-subscription",
+             Self::OpenAiChatCompletions => "openai-chat-completions",
+             Self::OpenAiResponses => "openai-responses",
++            Self::OpenCodeGo => "opencode-go",
++            Self::OpenCodeGoMessages => "opencode-go-messages",
++            Self::OpenCodeGoResponses => "opencode-go-responses",
+         }
+     }
+
+@@ -833,7 +839,10 @@ impl Backend {
+     /// for Claude: the protocol name `anthropic-messages` silently falls out of it, and nothing
+     /// about the failure is visible except a missing line.
+     pub(crate) const fn takes_thinking(self) -> bool {
+-        matches!(self, Self::AnthropicMessages | Self::ClaudeSubscription)
++        matches!(
++            self,
++            Self::AnthropicMessages | Self::ClaudeSubscription | Self::OpenCodeGoMessages
++        )
+     }
+
+     /// Whether this backend actually sends the profile key `key`.
+diff --git a/src/config/profile.rs b/src/config/profile.rs
+index 3af46fb..63b1de7 100644
+--- a/src/config/profile.rs
++++ b/src/config/profile.rs
+@@ -29,6 +29,15 @@ pub(crate) enum Backend {
+     OpenAiChatCompletions,
+     /// An OpenAI-compatible Responses endpoint, billed to an API key.
+     OpenAiResponses,
++    /// OpenCode Go's subscription gateway over the Chat Completions protocol; every request must
++    /// carry the conversation's id in `x-opencode-session`.
++    OpenCodeGo,
++    /// OpenCode Go's subscription gateway over the Anthropic Messages protocol, for the models
++    /// served there.
++    OpenCodeGoMessages,
++    /// OpenCode Go's subscription gateway over the Responses protocol, for the models served
++    /// there.
++    OpenCodeGoResponses,
+ }
+ /// One named account from `[accounts.<name>]`: where a request goes and who meka is when it
+ /// arrives. Holds only non-secret settings; the credential (API key or OAuth bundle) is stored in
+diff --git a/src/provider.rs b/src/provider.rs
+index 637c521..a78207b 100644
+--- a/src/provider.rs
++++ b/src/provider.rs
+@@ -16,6 +16,8 @@ mod budget;
+ #[cfg(any(debug_assertions, feature = "mock-provider"))]
+ pub(crate) mod mock;
+ pub(crate) mod openai;
++/// The OpenCode Go gateway: the session header its endpoints require, and its usage endpoint.
++pub(crate) mod opencode;
+ /// Backoff policy for retrying [`crate::error::MekaError::RetryableProvider`] failures.
+ pub(crate) mod retry;
+ pub(crate) mod sse;
+@@ -72,6 +74,8 @@ pub(crate) const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
+ pub(crate) const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+ /// See [`DEFAULT_ANTHROPIC_BASE_URL`].
+ pub(crate) const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com";
++/// See [`DEFAULT_ANTHROPIC_BASE_URL`].
++pub(crate) const DEFAULT_OPENCODE_GO_BASE_URL: &str = "https://opencode.ai/zen/go/v1";
+
+ /// The default endpoint for `backend`.
+ pub(crate) fn default_base_url(backend: Backend) -> &'static str {
+@@ -79,6 +83,9 @@ pub(crate) fn default_base_url(backend: Backend) -> &'static str {
+         Backend::AnthropicMessages | Backend::ClaudeSubscription => DEFAULT_ANTHROPIC_BASE_URL,
+         Backend::OpenAiChatCompletions | Backend::OpenAiResponses => DEFAULT_OPENAI_BASE_URL,
+         Backend::ChatGptSubscription => DEFAULT_CHATGPT_BASE_URL,
++        Backend::OpenCodeGo | Backend::OpenCodeGoResponses | Backend::OpenCodeGoMessages => {
++            DEFAULT_OPENCODE_GO_BASE_URL
++        }
+     }
+ }
+
+@@ -1795,6 +1802,48 @@ mod tests {
+         assert!(result.is_err());
+     }
+
++    /// All three OpenCode Go backends bill an API key, never an OAuth bundle.
++    #[test]
++    fn every_opencode_go_backend_refuses_an_oauth_token() {
++        for backend in [
++            Backend::OpenCodeGo,
++            Backend::OpenCodeGoResponses,
++            Backend::OpenCodeGoMessages,
++        ] {
++            let result = ProviderBuilder::new(
++                backend,
++                AuthCredential::OAuthToken {
++                    access_token: "ey...".to_string(),
++                    refresh_token: None,
++                    expires_at: None,
++                    account_id: None,
++                },
++                "some-model",
++            )
++            .build();
++            assert!(result.is_err(), "{backend} must refuse an OAuth token");
++        }
++    }
++
++    /// A profile named on an OpenCode Go account builds a provider that carries the gateway facts.
++    #[test]
++    fn an_opencode_go_account_builds_a_gateway_provider() {
++        for backend in [
++            Backend::OpenCodeGo,
++            Backend::OpenCodeGoResponses,
++            Backend::OpenCodeGoMessages,
++        ] {
++            ProviderBuilder::new(
++                backend,
++                AuthCredential::ApiKey("sk-...".to_string()),
++                "some-model",
++            )
++            .opencode()
++            .build()
++            .expect("an API key must build");
++        }
++    }
++
+     fn now_ms_in_far_future() -> i64 {
+         std::time::SystemTime::now()
+             .duration_since(std::time::UNIX_EPOCH)
+diff --git a/src/provider/anthropic/messages.rs b/src/provider/anthropic/messages.rs
+index eef00d3..4312f4f 100644
+--- a/src/provider/anthropic/messages.rs
++++ b/src/provider/anthropic/messages.rs
+@@ -39,6 +39,9 @@ pub(crate) struct AnthropicMessagesProvider {
+     max_output_tokens: Option<u64>,
+     /// See [`crate::config::ProfileConfig::max_request_bytes`].
+     max_request_bytes: Option<usize>,
++    /// The OpenCode Go gateway facts, when this provider is one of the `opencode-*` backends;
++    /// `None` (the generic case) adds nothing to the wire.
++    opencode: Option<crate::provider::opencode::Gateway>,
+ }
+
+ impl AnthropicMessagesProvider {
+@@ -52,6 +55,7 @@ impl AnthropicMessagesProvider {
+             effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+             ..
+         } = settings;
+         let resolved_effort = crate::provider::resolve_effort_level(effort.as_deref());
+@@ -69,6 +73,7 @@ impl AnthropicMessagesProvider {
+             resolved_effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+         })
+     }
+
+@@ -205,13 +210,18 @@ impl shared::ClaudeBackend for AnthropicMessagesProvider {
+         _has_tools: bool,
+         stream: bool,
+         thinking: ThinkingOverride,
++        attribution: &crate::provider::Attribution,
+     ) -> Result<reqwest::RequestBuilder> {
+         let request = if stream {
+             request.header("accept-encoding", "identity")
+         } else {
+             request
+         };
+-        Ok(self.apply_headers(request, thinking))
++        Ok(crate::provider::opencode::apply_request_headers(
++            self.apply_headers(request, thinking),
++            attribution,
++            self.opencode,
++        ))
+     }
+ }
+
+@@ -234,6 +244,23 @@ impl Provider for AnthropicMessagesProvider {
+         shared::stream(self, request, event_sender, cancellation).await
+     }
+
++    async fn fetch_usage(&self) -> Result<Option<crate::provider::AccountUsage>> {
++        match self.opencode {
++            Some(gateway) => Ok(Some(
++                crate::provider::opencode::fetch_usage(
++                    &self.client,
++                    // `self.base_url` carries no trailing `/v1` (the Messages driver strips it and
++                    // re-appends per request), so the usage endpoint re-appends it too.
++                    format!("{}/v1/usage", self.base_url),
++                    &self.api_key,
++                    gateway,
++                )
++                .await?,
++            )),
++            None => Ok(None),
++        }
++    }
++
+     fn resolved_effort(&self) -> Option<String> {
+         self.wire_effort()
+     }
+@@ -642,4 +669,87 @@ mod tests {
+             "anthropic-messages should omit `system` when the prompt is empty"
+         );
+     }
++
++    /// An `opencode-go-messages` completion stamps the conversation's id into `x-opencode-session`
++    /// (both `complete` and `stream` route through `authenticated_request`, so one wire test
++    /// covers the shared site).
++    #[tokio::test]
++    async fn an_opencode_go_messages_completion_carries_the_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = AnthropicMessagesProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::OpenCodeGoMessages,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "minimax-m3".to_string(),
++            )
++            .base_url(Some(format!("http://{local}")))
++            .opencode(),
++        )
++        .expect("provider");
++        let session_id = uuid::Uuid::new_v4();
++        if provider
++            .complete(
++                CompletionRequest::new("", &[Message::user("hello")], &[]).attributed(
++                    crate::provider::Attribution {
++                        session_id: Some(session_id),
++                        ..Default::default()
++                    },
++                ),
++                CancellationToken::new(),
++            )
++            .await
++            .is_ok()
++        {
++            panic!("a 400 from the endpoint must not read as a completed completion");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            head.lines()
++                .any(|line| line == format!("x-opencode-session: {session_id}")),
++            "the completion must carry the session; head:\n{head}"
++        );
++        assert!(
++            head.lines()
++                .any(|line| line.starts_with("user-agent: meka/")),
++            "the completion must carry meka's user agent; head:\n{head}"
++        );
++    }
++
++    /// The generic backend sends what it always sent.
++    #[tokio::test]
++    async fn a_generic_messages_request_carries_no_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = AnthropicMessagesProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::AnthropicMessages,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "claude-opus-5".to_string(),
++            )
++            .base_url(Some(format!("http://{local}"))),
++        )
++        .expect("provider");
++        if provider
++            .complete(
++                CompletionRequest::new("", &[Message::user("hello")], &[]),
++                CancellationToken::new(),
++            )
++            .await
++            .is_ok()
++        {
++            panic!("a 400 from the endpoint must not read as a completed completion");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            !head.contains("x-opencode-session"),
++            "a generic backend must not name a session; head:\n{head}"
++        );
++        assert!(
++            !head.contains("user-agent: meka/"),
++            "a generic backend must keep its wire identity; head:\n{head}"
++        );
++    }
+ }
+diff --git a/src/provider/anthropic/shared.rs b/src/provider/anthropic/shared.rs
+index c70d0c9..214111d 100644
+--- a/src/provider/anthropic/shared.rs
++++ b/src/provider/anthropic/shared.rs
+@@ -663,6 +663,7 @@ pub(super) trait ClaudeBackend: crate::oauth::RefreshesCredential + Send + Sync
+         has_tools: bool,
+         stream: bool,
+         thinking: ThinkingOverride,
++        attribution: &crate::provider::Attribution,
+     ) -> Result<reqwest::RequestBuilder>;
+     /// Record the response's request id where the next request can name it; a no-op for a backend
+     /// whose wire carries none.
+@@ -728,6 +729,7 @@ pub(super) async fn complete<B: ClaudeBackend>(
+                     !tools.is_empty(),
+                     false,
+                     thinking,
++                    &attribution,
+                 )
+                 .await?
+                 .body(body_json.clone()))
+@@ -812,6 +814,7 @@ pub(super) async fn stream<B: ClaudeBackend>(
+                     !tools.is_empty(),
+                     true,
+                     thinking,
++                    &attribution,
+                 )
+                 .await?
+                 .body(body_json.clone()))
+diff --git a/src/provider/anthropic/subscription.rs b/src/provider/anthropic/subscription.rs
+index fcb82ad..1bab45c 100644
+--- a/src/provider/anthropic/subscription.rs
++++ b/src/provider/anthropic/subscription.rs
+@@ -808,6 +808,7 @@ impl shared::ClaudeBackend for ClaudeSubscriptionProvider {
+         has_tools: bool,
+         _stream: bool,
+         thinking: ThinkingOverride,
++        _attribution: &crate::provider::Attribution,
+     ) -> Result<reqwest::RequestBuilder> {
+         let (auth_header_name, auth_header_value) = self.ensure_valid_credential().await?;
+         Ok(attestation::apply_headers(
+diff --git a/src/provider/openai/chat_completions.rs b/src/provider/openai/chat_completions.rs
+index 16ed438..63c8f82 100644
+--- a/src/provider/openai/chat_completions.rs
++++ b/src/provider/openai/chat_completions.rs
+@@ -40,6 +40,9 @@ pub(crate) struct OpenAiChatCompletionsProvider {
+     max_output_tokens: Option<u64>,
+     /// See [`crate::config::ProfileConfig::max_request_bytes`]; unset means no ceiling here.
+     max_request_bytes: Option<usize>,
++    /// The OpenCode Go gateway facts, when this provider is one of the `opencode-*` backends;
++    /// `None` (the generic case) adds nothing to the wire.
++    opencode: Option<crate::provider::opencode::Gateway>,
+ }
+
+ impl OpenAiChatCompletionsProvider {
+@@ -51,6 +54,7 @@ impl OpenAiChatCompletionsProvider {
+             effort: reasoning_effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+             ..
+         } = settings;
+         let resolved_effort = crate::provider::resolve_effort_level(reasoning_effort.as_deref());
+@@ -68,6 +72,7 @@ impl OpenAiChatCompletionsProvider {
+             resolved_effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+         })
+     }
+
+@@ -397,6 +402,7 @@ impl Provider for OpenAiChatCompletionsProvider {
+             system_prompt,
+             messages,
+             tools,
++            attribution,
+             ..
+         } = request;
+         let (body_json, redaction_notice) =
+@@ -407,12 +413,15 @@ impl Provider for OpenAiChatCompletionsProvider {
+             crate::error::ProviderRequest::Completion,
+             |error| crate::error::provider_transport_error("HTTP request failed", error, None),
+             || async {
+-                Ok(self
+-                    .client
+-                    .post(format!("{}/chat/completions", self.base_url))
+-                    .header("Authorization", crate::text::bearer(&self.api_key))
+-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+-                    .body(body_json.clone()))
++                Ok(crate::provider::opencode::apply_request_headers(
++                    self.client
++                        .post(format!("{}/chat/completions", self.base_url))
++                        .header("Authorization", crate::text::bearer(&self.api_key))
++                        .header(reqwest::header::CONTENT_TYPE, "application/json"),
++                    &attribution,
++                    self.opencode,
++                )
++                .body(body_json.clone()))
+             },
+             &cancellation,
+         )
+@@ -454,6 +463,7 @@ impl Provider for OpenAiChatCompletionsProvider {
+             system_prompt,
+             messages,
+             tools,
++            attribution,
+             ..
+         } = request;
+         let (body_json, redaction_notice) =
+@@ -474,12 +484,15 @@ impl Provider for OpenAiChatCompletionsProvider {
+             crate::error::ProviderRequest::Completion,
+             |error| crate::error::provider_transport_error("HTTP request failed", error, None),
+             || async {
+-                Ok(self
+-                    .client
+-                    .post(format!("{}/chat/completions", self.base_url))
+-                    .header("Authorization", crate::text::bearer(&self.api_key))
+-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+-                    .body(body_json.clone()))
++                Ok(crate::provider::opencode::apply_request_headers(
++                    self.client
++                        .post(format!("{}/chat/completions", self.base_url))
++                        .header("Authorization", crate::text::bearer(&self.api_key))
++                        .header(reqwest::header::CONTENT_TYPE, "application/json"),
++                    &attribution,
++                    self.opencode,
++                )
++                .body(body_json.clone()))
+             },
+             &cancellation,
+         )
+@@ -497,6 +510,21 @@ impl Provider for OpenAiChatCompletionsProvider {
+         conclude_stream(end, protocol, &event_sender).await
+     }
+
++    async fn fetch_usage(&self) -> Result<Option<crate::provider::AccountUsage>> {
++        match self.opencode {
++            Some(gateway) => Ok(Some(
++                crate::provider::opencode::fetch_usage(
++                    &self.client,
++                    format!("{}/usage", self.base_url),
++                    &self.api_key,
++                    gateway,
++                )
++                .await?,
++            )),
++            None => Ok(None),
++        }
++    }
++
+     fn resolved_effort(&self) -> Option<String> {
+         self.wire_effort()
+     }
+@@ -1806,4 +1834,123 @@ mod tests {
+         assert!(tool_message.get("is_error").is_none(), "{tool_message}");
+         assert_eq!(tool_message["content"], "Error: no such file");
+     }
++
++    fn opencode_provider(local: std::net::SocketAddr) -> OpenAiChatCompletionsProvider {
++        OpenAiChatCompletionsProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::OpenCodeGo,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "kimi-k3".to_string(),
++            )
++            .base_url(Some(format!("http://{local}")))
++            .opencode(),
++        )
++        .expect("provider")
++    }
++
++    /// An `opencode-go` completion stamps the conversation's id into `x-opencode-session`; it is
++    /// the one fact that makes the gateway accept the request at all.
++    #[tokio::test]
++    async fn an_opencode_go_completion_carries_the_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = opencode_provider(local);
++        let session_id = uuid::Uuid::new_v4();
++        // The refusal is the point of the mock, not of the test.
++        if provider
++            .complete(
++                CompletionRequest::new("", &[Message::user("hello")], &[]).attributed(
++                    crate::provider::Attribution {
++                        session_id: Some(session_id),
++                        ..Default::default()
++                    },
++                ),
++                CancellationToken::new(),
++            )
++            .await
++            .is_ok()
++        {
++            panic!("a 400 from the endpoint must not read as a completed completion");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            head.lines()
++                .any(|line| line == format!("x-opencode-session: {session_id}")),
++            "the completion must carry the session; head:\n{head}"
++        );
++        assert!(
++            head.lines()
++                .any(|line| line.starts_with("user-agent: meka/")),
++            "the completion must carry meka's user agent; head:\n{head}"
++        );
++    }
++
++    /// The streaming path stamps the same header; the two request sites must not drift.
++    #[tokio::test]
++    async fn an_opencode_go_stream_carries_the_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = opencode_provider(local);
++        let session_id = uuid::Uuid::new_v4();
++        let (sender, _receiver) = mpsc::channel(8);
++        if let Ok(()) = provider
++            .stream(
++                CompletionRequest::new("", &[Message::user("hello")], &[]).attributed(
++                    crate::provider::Attribution {
++                        session_id: Some(session_id),
++                        ..Default::default()
++                    },
++                ),
++                sender,
++                CancellationToken::new(),
++            )
++            .await
++        {
++            panic!("a 400 from the endpoint must not read as a completed stream");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            head.lines()
++                .any(|line| line == format!("x-opencode-session: {session_id}")),
++            "the stream must carry the session; head:\n{head}"
++        );
++    }
++
++    /// The generic backend sends what it always sent: no session header, no meka user agent.
++    #[tokio::test]
++    async fn a_generic_chat_completions_request_carries_neither_gateway_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = OpenAiChatCompletionsProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::OpenAiChatCompletions,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "gpt-5.6-sol".to_string(),
++            )
++            .base_url(Some(format!("http://{local}"))),
++        )
++        .expect("provider");
++        let (sender, _receiver) = mpsc::channel(8);
++        if let Ok(()) = provider
++            .stream(
++                CompletionRequest::new("", &[Message::user("hello")], &[]),
++                sender,
++                CancellationToken::new(),
++            )
++            .await
++        {
++            panic!("a 400 from the endpoint must not read as a completed stream");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            !head.contains("x-opencode-session"),
++            "a generic backend must not name a session; head:\n{head}"
++        );
++        assert!(
++            !head.contains("user-agent: meka/"),
++            "a generic backend must keep its wire identity; head:\n{head}"
++        );
++    }
+ }
+diff --git a/src/provider/openai/responses.rs b/src/provider/openai/responses.rs
+index c889d73..dca83c3 100644
+--- a/src/provider/openai/responses.rs
++++ b/src/provider/openai/responses.rs
+@@ -43,6 +43,9 @@ pub(crate) struct OpenAiResponsesProvider {
+     max_output_tokens: Option<u64>,
+     /// See [`crate::config::ProfileConfig::max_request_bytes`]; unset means no ceiling here.
+     max_request_bytes: Option<usize>,
++    /// The OpenCode Go gateway facts, when this provider is one of the `opencode-*` backends;
++    /// `None` (the generic case) adds nothing to the wire.
++    opencode: Option<crate::provider::opencode::Gateway>,
+ }
+
+ impl OpenAiResponsesProvider {
+@@ -54,6 +57,7 @@ impl OpenAiResponsesProvider {
+             effort: reasoning_effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+             ..
+         } = settings;
+         let resolved_effort = crate::provider::resolve_effort_level(reasoning_effort.as_deref());
+@@ -73,6 +77,7 @@ impl OpenAiResponsesProvider {
+             resolved_effort,
+             max_output_tokens,
+             max_request_bytes,
++            opencode,
+         })
+     }
+
+@@ -144,11 +149,15 @@ impl super::responses_wire::ResponsesBackend for OpenAiResponsesProvider {
+     async fn authenticated_request(
+         &self,
+         request: reqwest::RequestBuilder,
+-        _attribution: &crate::provider::Attribution,
++        attribution: &crate::provider::Attribution,
+     ) -> Result<reqwest::RequestBuilder> {
+-        Ok(request
+-            .header("Authorization", crate::text::bearer(&self.api_key))
+-            .header("Accept", "text/event-stream"))
++        Ok(crate::provider::opencode::apply_request_headers(
++            request
++                .header("Authorization", crate::text::bearer(&self.api_key))
++                .header("Accept", "text/event-stream"),
++            attribution,
++            self.opencode,
++        ))
+     }
+ }
+
+@@ -171,6 +180,21 @@ impl Provider for OpenAiResponsesProvider {
+         super::responses_wire::stream(self, request, event_sender, cancellation).await
+     }
+
++    async fn fetch_usage(&self) -> Result<Option<crate::provider::AccountUsage>> {
++        match self.opencode {
++            Some(gateway) => Ok(Some(
++                crate::provider::opencode::fetch_usage(
++                    &self.client,
++                    format!("{}/usage", self.base_url),
++                    &self.api_key,
++                    gateway,
++                )
++                .await?,
++            )),
++            None => Ok(None),
++        }
++    }
++
+     fn resolved_effort(&self) -> Option<String> {
+         self.wire_effort()
+     }
+@@ -334,4 +358,84 @@ mod tests {
+         // An empty system prompt sends no `instructions` rather than an empty one.
+         assert!(body.get("instructions").is_none(), "{body}");
+     }
++
++    /// An `opencode-go-responses` stream stamps the conversation's id into `x-opencode-session`
++    /// (both `complete` and `stream` route through `authenticated_request`, so one wire test
++    /// covers the shared site).
++    #[tokio::test]
++    async fn an_opencode_go_responses_stream_carries_the_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = OpenAiResponsesProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::OpenCodeGoResponses,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "gpt-5.6-luna".to_string(),
++            )
++            .base_url(Some(format!("http://{local}")))
++            .opencode(),
++        )
++        .expect("provider");
++        let session_id = uuid::Uuid::new_v4();
++        let (sender, _receiver) = mpsc::channel(8);
++        if let Ok(()) = provider
++            .stream(
++                CompletionRequest::new("", &[Message::user("hello")], &[]).attributed(
++                    crate::provider::Attribution {
++                        session_id: Some(session_id),
++                        ..Default::default()
++                    },
++                ),
++                sender,
++                CancellationToken::new(),
++            )
++            .await
++        {
++            panic!("a 400 from the endpoint must not read as a completed stream");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            head.lines()
++                .any(|line| line == format!("x-opencode-session: {session_id}")),
++            "the stream must carry the session; head:\n{head}"
++        );
++    }
++
++    /// The generic backend sends what it always sent.
++    #[tokio::test]
++    async fn a_generic_responses_request_carries_no_session_header() {
++        let (local, head_receiver) =
++            crate::provider::opencode::mock_endpoint_capturing_the_head().await;
++        let provider = OpenAiResponsesProvider::new(
++            "test-key".to_string(),
++            crate::provider::ProviderBuilder::new(
++                crate::config::Backend::OpenAiResponses,
++                crate::store::AuthCredential::ApiKey("test-key".to_string()),
++                "gpt-5.6-sol".to_string(),
++            )
++            .base_url(Some(format!("http://{local}"))),
++        )
++        .expect("provider");
++        let (sender, _receiver) = mpsc::channel(8);
++        if let Ok(()) = provider
++            .stream(
++                CompletionRequest::new("", &[Message::user("hello")], &[]),
++                sender,
++                CancellationToken::new(),
++            )
++            .await
++        {
++            panic!("a 400 from the endpoint must not read as a completed stream");
++        }
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            !head.contains("x-opencode-session"),
++            "a generic backend must not name a session; head:\n{head}"
++        );
++        assert!(
++            !head.contains("user-agent: meka/"),
++            "a generic backend must keep its wire identity; head:\n{head}"
++        );
++    }
+ }
+diff --git a/src/provider/opencode.rs b/src/provider/opencode.rs
+new file mode 100644
+index 0000000..5c39e0f
+--- /dev/null
++++ b/src/provider/opencode.rs
+@@ -0,0 +1,359 @@
++//! The OpenCode Go gateway: the request facts its endpoints require, and the usage endpoint
++//! `meka account usage` reads.
++//!
++//! One place for every fact meka sends to or reads from `opencode.ai`, so the three backends that
++//! reach it cannot drift. The session header is the product's own requirement, pinned by its docs
++//! and enforced by its gateway (requests without it fail with a `MissingSessionID` error), so it
++//! is a constant here rather than a config key.
++
++use super::{AccountUsage, UsageWindow};
++use crate::error::{MekaError, Result};
++
++/// The two wire facts an OpenCode Go backend carries that its generic protocol sibling does not.
++#[derive(Debug, Clone, Copy)]
++pub(crate) struct Gateway {
++    /// The header every inference request must carry: a stable per-conversation id, so the gateway
++    /// can route and prompt-cache the session.
++    pub(crate) session_header: &'static str,
++    /// The user agent OpenCode's docs ask gateway clients to send, rather than a generic HTTP
++    /// library name.
++    pub(crate) user_agent: &'static str,
++}
++
++impl Gateway {
++    /// The one gateway meka knows: OpenCode Go.
++    pub(crate) const GO: Gateway = Gateway {
++        session_header: "x-opencode-session",
++        user_agent: concat!("meka/", env!("CARGO_PKG_VERSION")),
++    };
++}
++
++/// Stamp the gateway's request facts onto `request`.
++///
++/// Nothing is removed: a generic backend passes `None`, and a request without an
++/// `attribution.session_id` carries no session value, so a request that reaches these lines sends
++/// exactly what it sent before the gateway existed.
++pub(crate) fn apply_request_headers(
++    mut request: reqwest::RequestBuilder,
++    attribution: &crate::provider::Attribution,
++    gateway: Option<Gateway>,
++) -> reqwest::RequestBuilder {
++    let Some(gateway) = gateway else {
++        return request;
++    };
++    if let Some(session_id) = attribution.session_id {
++        request = request.header(gateway.session_header, session_id.to_string());
++    }
++    request.header(reqwest::header::USER_AGENT, gateway.user_agent)
++}
++
++/// Fetch an OpenCode Go account's usage: the three dollar-budget windows the subscription has.
++///
++/// The same API key the inference requests carry; a missing or expired key is the endpoint's
++/// 401/403, surfaced like any other provider HTTP error. `url` is the full usage endpoint, which
++/// each driver derives from the base URL it stores (the Messages driver keeps its base without a
++/// trailing `/v1`, so it re-appends one here).
++pub(crate) async fn fetch_usage(
++    client: &reqwest::Client,
++    url: String,
++    api_key: &str,
++    gateway: Gateway,
++) -> Result<AccountUsage> {
++    let response = client
++        .get(url)
++        .header("Authorization", crate::text::bearer(api_key))
++        .header(reqwest::header::USER_AGENT, gateway.user_agent)
++        .send()
++        .await
++        .map_err(|error| {
++            crate::error::provider_transport_error("opencode usage request failed", &error, None)
++        })?;
++    let status = response.status();
++    let body = response.text().await.map_err(|error| {
++        MekaError::Provider(format!(
++            "failed to read the OpenCode Go usage response: {error}"
++        ))
++    })?;
++    if !status.is_success() {
++        return Err(crate::error::provider_http_error(
++            status,
++            &body,
++            None,
++            crate::error::ProviderRequest::Auxiliary,
++        ));
++    }
++    serde_json::from_str::<UsageWire>(&body)
++        .map(UsageWire::into_account_usage)
++        .map_err(|error| MekaError::Provider(format!("invalid OpenCode Go usage JSON: {error}")))
++}
++
++/// One usage window as OpenCode reports it: how much of a dollar-budget window is spent, and when
++/// the window resets. The `status` field is not modeled: a `rate-limited` status is exactly what a
++/// 100% `percent` says, and the reset time is what a user acts on.
++#[derive(Debug, serde::Deserialize)]
++struct WindowWire {
++    /// Percent of the window's dollar limit consumed.
++    percent: f64,
++    /// When the window resets, RFC 3339.
++    #[serde(rename = "resetsAt")]
++    resets_at: String,
++}
++
++/// The `GET /zen/go/v1/usage` body: the three windows the Go subscription is metered on.
++#[derive(Debug, serde::Deserialize)]
++struct UsageWire {
++    usage: UsageWindowsWire,
++}
++
++#[derive(Debug, serde::Deserialize)]
++struct UsageWindowsWire {
++    rolling: WindowWire,
++    weekly: WindowWire,
++    monthly: WindowWire,
++}
++
++impl UsageWire {
++    fn into_account_usage(self) -> AccountUsage {
++        let window = |label: &str, wire: WindowWire| UsageWindow {
++            label: label.to_string(),
++            used_percent: wire.percent,
++            // Unparseable reset times degrade to `None`, never an error: the percentage is the
++            // number a user acts on, and a wrong reset only misplaces the countdown.
++            resets_at: chrono::DateTime::parse_from_rfc3339(&wire.resets_at)
++                .ok()
++                .map(|when| when.timestamp()),
++        };
++        AccountUsage {
++            windows: vec![
++                window("5-hour (rolling)", self.usage.rolling),
++                window("Weekly", self.usage.weekly),
++                window("Monthly", self.usage.monthly),
++            ],
++            extra_usage: None,
++            note: None,
++        }
++    }
++}
++
++/// A mock endpoint that captures the head of the one request it receives, lowercased, and refuses
++/// it with a 400: the request is the point of the tests that use it, not an answer.
++#[cfg(test)]
++pub(crate) async fn mock_endpoint_capturing_the_head()
++-> (std::net::SocketAddr, tokio::sync::oneshot::Receiver<String>) {
++    mock_endpoint_answering(
++        "HTTP/1.1 400 Bad Request\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
++    )
++    .await
++}
++
++/// A mock endpoint that answers `response` and captures the head of the one request it receives,
++/// lowercased. Shared by the driver tests that assert what an OpenCode Go request carries, and by
++/// the usage-fetch tests, which need a real answer.
++#[cfg(test)]
++pub(crate) async fn mock_endpoint_answering(
++    response: &'static str,
++) -> (std::net::SocketAddr, tokio::sync::oneshot::Receiver<String>) {
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
++        .await
++        .expect("bind a mock endpoint");
++    let local = listener.local_addr().expect("local addr");
++    let (head_sender, head_receiver) = tokio::sync::oneshot::channel::<String>();
++    tokio::spawn(async move {
++        use tokio::io::{AsyncReadExt, AsyncWriteExt};
++        let Ok((mut socket, _)) = listener.accept().await else {
++            return;
++        };
++        let mut buffer = Vec::with_capacity(4096);
++        loop {
++            let mut chunk = [0u8; 2048];
++            let read = match socket.read(&mut chunk).await {
++                Ok(0) | Err(_) => break,
++                Ok(read) => read,
++            };
++            buffer.extend_from_slice(&chunk[..read]);
++            if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
++                break;
++            }
++        }
++        let end = buffer
++            .windows(4)
++            .position(|window| window == b"\r\n\r\n")
++            .unwrap_or(buffer.len());
++        let head = String::from_utf8_lossy(&buffer[..end]).to_ascii_lowercase();
++        if socket.write_all(response.as_bytes()).await.is_err() {
++            return;
++        }
++        if socket.shutdown().await.is_err() {
++            return;
++        }
++        if head_sender.send(head).is_err() {
++            tracing::debug!("the test dropped its receiver before the head arrived");
++        }
++    });
++    (local, head_receiver)
++}
++
++#[cfg(test)]
++mod tests {
++    use uuid::Uuid;
++
++    use super::*;
++    use crate::provider::Attribution;
++
++    #[test]
++    fn session_header_rides_the_attribution_and_user_agent_always_rides() {
++        let session_id = Uuid::new_v4();
++        let request = apply_request_headers(
++            reqwest::Client::new().post("http://localhost/chat/completions"),
++            &Attribution {
++                session_id: Some(session_id),
++                ..Default::default()
++            },
++            Some(Gateway::GO),
++        )
++        .build()
++        .expect("the request should build");
++        let headers = request.headers();
++        assert!(
++            headers
++                .get("x-opencode-session")
++                .and_then(|value| value.to_str().ok())
++                .is_some_and(|value| value == session_id.to_string().as_str()),
++            "the request must carry the session under the gateway's header name"
++        );
++        assert!(
++            headers
++                .get(reqwest::header::USER_AGENT)
++                .and_then(|v| v.to_str().ok())
++                .is_some_and(|ua| ua.starts_with("meka/"))
++        );
++    }
++
++    #[test]
++    fn a_turn_without_a_session_sends_the_user_agent_but_no_session_header() {
++        let request = apply_request_headers(
++            reqwest::Client::new().post("http://localhost/chat/completions"),
++            &Attribution::default(),
++            Some(Gateway::GO),
++        )
++        .build()
++        .expect("the request should build");
++        assert!(request.headers().get("x-opencode-session").is_none());
++        assert!(request.headers().get(reqwest::header::USER_AGENT).is_some());
++    }
++
++    #[test]
++    fn a_generic_backend_adds_nothing() {
++        let request = apply_request_headers(
++            reqwest::Client::new().post("http://localhost/chat/completions"),
++            &Attribution::default(),
++            None,
++        )
++        .build()
++        .expect("the request should build");
++        let headers = request.headers();
++        assert!(headers.get("x-opencode-session").is_none());
++        assert!(headers.get(reqwest::header::USER_AGENT).is_none());
++    }
++
++    #[test]
++    fn usage_windows_map_name_percent_and_reset() {
++        let wire: UsageWire = serde_json::from_str(
++            r#"{"usage":{
++                "rolling":{"status":"ok","percent":41.5,"resetsAt":"2026-09-15T17:00:00.000000+00:00"},
++                "weekly":{"status":"ok","percent":12.0,"resetsAt":"2026-09-20T00:00:00+00:00"},
++                "monthly":{"status":"rate-limited","percent":100.0,"resetsAt":"2026-09-30T23:59:59+00:00"}
++            }}"#,
++        )
++        .expect("the wire shape should parse");
++        let usage = wire.into_account_usage();
++        assert_eq!(usage.windows.len(), 3);
++        assert_eq!(usage.windows[0].label, "5-hour (rolling)");
++        assert_eq!(usage.windows[0].used_percent, 41.5);
++        assert_eq!(usage.windows[1].label, "Weekly");
++        assert_eq!(usage.windows[1].used_percent, 12.0);
++        assert_eq!(usage.windows[2].label, "Monthly");
++        assert_eq!(usage.windows[2].used_percent, 100.0);
++        assert_eq!(
++            usage.windows[0].resets_at,
++            chrono::DateTime::parse_from_rfc3339("2026-09-15T17:00:00.000000+00:00")
++                .map(|when| when.timestamp())
++                .ok()
++        );
++        assert!(usage.extra_usage.is_none());
++        assert!(usage.note.is_none());
++    }
++
++    #[test]
++    fn an_unparseable_reset_time_degrades_to_none() {
++        let wire: UsageWire = serde_json::from_str(
++            r#"{"usage":{
++                "rolling":{"status":"ok","percent":1.0,"resetsAt":"not-a-date"},
++                "weekly":{"status":"ok","percent":2.0,"resetsAt":"2026-09-20T00:00:00+00:00"},
++                "monthly":{"status":"ok","percent":3.0,"resetsAt":"2026-09-30T23:59:59+00:00"}
++            }}"#,
++        )
++        .expect("the wire shape should parse");
++        let usage = wire.into_account_usage();
++        assert_eq!(usage.windows[0].resets_at, None);
++        assert_eq!(usage.windows[0].used_percent, 1.0);
++    }
++
++    /// The usage GET carries the inference key and meka's user agent, and nothing else: the
++    /// endpoint is account-level, so there is no session to name.
++    #[tokio::test]
++    async fn fetch_usage_reads_the_windows_over_the_bearer_key() {
++        let (local, head_receiver) = mock_endpoint_answering(
++            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n\
++             {\"usage\":{\
++             \"rolling\":{\"status\":\"ok\",\"percent\":41.5,\"resetsAt\":\"2026-09-15T17:00:00.000000+00:00\"},\
++             \"weekly\":{\"status\":\"ok\",\"percent\":12.0,\"resetsAt\":\"2026-09-20T00:00:00+00:00\"},\
++             \"monthly\":{\"status\":\"rate-limited\",\"percent\":100.0,\"resetsAt\":\"2026-09-30T23:59:59+00:00\"}}}",
++        )
++        .await;
++        let usage = fetch_usage(
++            &reqwest::Client::new(),
++            format!("http://{local}/usage"),
++            "test-key",
++            Gateway::GO,
++        )
++        .await
++        .expect("the usage should fetch");
++        assert_eq!(usage.windows[0].label, "5-hour (rolling)");
++        assert_eq!(usage.windows[0].used_percent, 41.5);
++        assert_eq!(usage.windows[1].used_percent, 12.0);
++        assert_eq!(usage.windows[2].used_percent, 100.0);
++        let head = head_receiver.await.expect("the mock saw the request");
++        assert!(
++            head.lines()
++                .any(|line| line == "authorization: bearer test-key"),
++            "the usage request must carry the inference key; head:\n{head}"
++        );
++        assert!(
++            head.lines()
++                .any(|line| line.starts_with("user-agent: meka/")),
++            "the usage request must carry meka's user agent; head:\n{head}"
++        );
++        assert!(
++            !head.contains("x-opencode-session"),
++            "the usage request is account-level and must not name a session; head:\n{head}"
++        );
++    }
++
++    /// A 403 (no active subscription) surfaces as an error rather than an empty usage.
++    #[tokio::test]
++    async fn a_refused_usage_fetch_is_an_error() {
++        let (local, _head_receiver) = mock_endpoint_answering(
++            "HTTP/1.1 403 Forbidden\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
++        )
++        .await;
++        let result = fetch_usage(
++            &reqwest::Client::new(),
++            format!("http://{local}/usage"),
++            "test-key",
++            Gateway::GO,
++        )
++        .await;
++        assert!(result.is_err(), "a 403 must not read as empty usage");
++    }
++}
+diff --git a/src/provider/registry.rs b/src/provider/registry.rs
+index f730fad..7b7e9c3 100644
+--- a/src/provider/registry.rs
++++ b/src/provider/registry.rs
+@@ -25,6 +25,10 @@ pub(crate) struct ProviderBuilder {
+     pub(super) context_window: Option<u64>,
+     pub(super) max_output_tokens: Option<u64>,
+     pub(super) max_request_bytes: Option<usize>,
++    /// The OpenCode Go gateway facts, set for the three `opencode-*` backends only. `None` sends
++    /// none of them, which is the entire difference from the generic protocol siblings besides the
++    /// default endpoint.
++    pub(super) opencode: Option<opencode::Gateway>,
+ }
+ impl ProviderBuilder {
+     pub(crate) fn new(
+@@ -49,6 +53,7 @@ impl ProviderBuilder {
+             context_window: None,
+             max_output_tokens: None,
+             max_request_bytes: None,
++            opencode: None,
+         }
+     }
+
+@@ -135,6 +140,14 @@ impl ProviderBuilder {
+         self
+     }
+
++    /// Say the provider is an OpenCode Go gateway client: every request carries the conversation's
++    /// id in `x-opencode-session` and meka's user agent. Consumed by the three `opencode-*`
++    /// backends; every other backend ignores it.
++    pub(crate) fn opencode(mut self) -> Self {
++        self.opencode = Some(opencode::Gateway::GO);
++        self
++    }
++
+     /// The row a subscription backend writes refreshed tokens to.
+     ///
+     /// No default in its place: the registry is the one authority on which row a profile's
+@@ -214,6 +227,54 @@ impl ProviderBuilder {
+                 }
+                 Ok(Arc::new(ChatGptSubscriptionProvider::new(self)?))
+             }
++            Backend::OpenCodeGo => {
++                let api_key = match &self.credential {
++                    AuthCredential::ApiKey(key) => key.clone(),
++                    AuthCredential::OAuthToken { .. } => {
++                        return Err(MekaError::Config(
++                            "backend 'opencode-go' takes an API key, not an OAuth token; \
++                             'chatgpt-subscription' bills a subscription"
++                                .to_string(),
++                        ));
++                    }
++                };
++                Ok(Arc::new(OpenAiChatCompletionsProvider::new(
++                    api_key,
++                    self.opencode(),
++                )?))
++            }
++            Backend::OpenCodeGoResponses => {
++                let api_key = match &self.credential {
++                    AuthCredential::ApiKey(key) => key.clone(),
++                    AuthCredential::OAuthToken { .. } => {
++                        return Err(MekaError::Config(
++                            "backend 'opencode-go-responses' takes an API key, not an OAuth \
++                             token; 'chatgpt-subscription' bills a subscription"
++                                .to_string(),
++                        ));
++                    }
++                };
++                Ok(Arc::new(OpenAiResponsesProvider::new(
++                    api_key,
++                    self.opencode(),
++                )?))
++            }
++            Backend::OpenCodeGoMessages => {
++                let api_key = match &self.credential {
++                    AuthCredential::ApiKey(key) => key.clone(),
++                    AuthCredential::OAuthToken { .. } => {
++                        return Err(MekaError::Config(
++                            "backend 'opencode-go-messages' takes an API key, not an OAuth \
++                             token; 'claude-subscription' bills a subscription"
++                                .to_string(),
++                        ));
++                    }
++                };
++                Ok(Arc::new(AnthropicMessagesProvider::new(
++                    api_key,
++                    self.opencode(),
++                )?))
++            }
+         }
+     }
+ }
+--
+2.55.0
+
