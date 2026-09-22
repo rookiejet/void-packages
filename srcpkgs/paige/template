@@ -1,0 +1,24 @@
+# Template file for 'paige'
+pkgname=paige
+version=0.2.0
+revision=1
+build_style=gnu-makefile
+make_check_target=test
+short_desc="Small dependency-free terminal pager engine"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://git.illumed.net/paige.git"
+distfiles="https://git.illumed.net/paige.git/snapshot/v${version}.tar.gz"
+checksum=49c57fac7a128061285ee08465765ff74bf771fdd74cea196d18ea536fd393e8
+make_check=ci-skip # pty tests need a controlling tty; run locally with -Q
+
+post_patch() {
+	vsed -i 's|^ALLCFLAGS = |ALLCFLAGS = -std=c11 |' Makefile
+	vsed -i 's|\$(FEATURE) -o paige |$(FEATURE) $(LDFLAGS) -o paige |' Makefile
+}
+
+do_install() {
+	vbin paige
+	vlicense LICENSE
+	vdoc README.md
+}
