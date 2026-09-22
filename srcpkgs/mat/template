@@ -1,0 +1,35 @@
+# Template file for 'mat'
+pkgname=mat
+version=0.8.2
+revision=1
+_paige_commit=25d5766b37b41ef8df25cd2589064cd0221e7665
+build_style=configure
+configure_args="--prefix=/usr --no-werror"
+make_check_target=test
+short_desc="Fast cat(1) replacement with syntax highlighting and a pager"
+maintainer="rookiejet <void@illumed.net>"
+license="MIT"
+homepage="https://git.illumed.net/mat.git"
+distfiles="https://git.illumed.net/mat.git/snapshot/v${version}.tar.gz
+ https://git.illumed.net/paige.git/snapshot/${_paige_commit}.tar.gz>paige-${_paige_commit}.tar.gz"
+checksum="d942f559194a13f2f23834cbd4af53ebcb06c31782ba6398ea373802ca18523a
+ 85fa34a4fe8b4cfc3da25acf8baa040bf16d2e62a2f169e3369a0aff975672c0"
+skip_extraction="paige-${_paige_commit}.tar.gz"
+
+post_extract() {
+	vsrcextract -C lib/paige paige-${_paige_commit}.tar.gz
+}
+
+post_patch() {
+	vsed -i -e 's|^LDFLAGS = |LDFLAGS += |' Makefile
+}
+
+do_install() {
+	vbin mat
+	vman man/mat.1
+	vcompletion completions/mat.bash bash
+	vcompletion completions/mat.fish fish
+	vcompletion completions/mat.zsh zsh
+	vlicense LICENSE
+	vdoc README.md
+}
