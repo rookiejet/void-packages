@@ -1,0 +1,3 @@
+# mat's releases are tags on the self-hosted mirror (GitHub is never pushed)
+site="https://git.illumed.net/mat.git/refs/"
+pattern="tag/\?h=v\K[\d.]+"
