@@ -1,0 +1,20 @@
+# Template file for 'concord'
+pkgname=concord
+version=2.6.0
+revision=1
+build_style=cargo
+hostmakedepends="clang cmake git nasm pkg-config"
+makedepends="alsa-lib-devel libva-devel libcxx-devel libzstd-devel pipewire-devel"
+depends="ca-certificates dbus libglvnd mpv xdg-desktop-portal"
+short_desc="Terminal user interface client for Discord"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-only"
+homepage="https://github.com/chojs23/concord"
+changelog="https://raw.githubusercontent.com/chojs23/concord/main/CHANGELOG.md"
+distfiles="https://github.com/chojs23/concord/archive/refs/tags/v${version}.tar.gz"
+checksum=ea07bb13db7de8f2b810d91a3ca1ad75551063c98305514a675bcfb4160ec311
+
+post_install() {
+	vdoc docs/keymap-options.md
+	vdoc docs/theme-options.md
+}
