@@ -1,0 +1,276 @@
+commit 1982fce6b049c2f4f9fd3d4895da61807a2d0101
+Author: Mazin Fadl <mazen@illumed.net>
+Date:   Thu Oct 8 19:12:11 2026 -0400
+
+    feat(tui): cache recently opened channels in the channel switcher
+
+diff --git a/src/config/options.rs b/src/config/options.rs
+index 238ddc7..56fadf4 100644
+--- a/src/config/options.rs
++++ b/src/config/options.rs
+@@ -644,6 +644,8 @@ pub struct UiStateOptions {
+     /// user. This avoids reclassifying an established conversation when those
+     /// messages later fall outside the latest 50-message window.
+     pub established_dms: Vec<Id<ChannelMarker>>,
++    /// Channels the user most recently opened, newest first.
++    pub recent_channel_ids: Vec<Id<ChannelMarker>>,
+     pub voice_participant_playback: Vec<VoiceParticipantPlaybackOption>,
+ }
+ 
+@@ -660,6 +662,7 @@ impl Default for UiStateOptions {
+             collapsed_server_folder_ids: Vec::new(),
+             collapsed_server_folder_guilds: Vec::new(),
+             established_dms: Vec::new(),
++            recent_channel_ids: Vec::new(),
+             voice_participant_playback: Vec::new(),
+         }
+     }
+diff --git a/src/tui/state/channels.rs b/src/tui/state/channels.rs
+index 05cc64f..f4bb99e 100644
+--- a/src/tui/state/channels.rs
++++ b/src/tui/state/channels.rs
+@@ -1587,7 +1587,10 @@ impl DashboardState {
+         let Some(channel) = self.discord.cache.channel(channel_id) else {
+             return;
+         };
+-        if channel.is_category() || channel.is_thread() {
++        if channel.is_category() {
++            return;
++        }
++        if self.navigation.channels.recent_channel_ids.front() == Some(&channel_id) {
+             return;
+         }
+ 
+@@ -1603,6 +1606,7 @@ impl DashboardState {
+             .channels
+             .recent_channel_ids
+             .truncate(RECENT_CHANNEL_LIMIT);
++        self.options.ui_state_save_pending = true;
+     }
+ 
+     /// Ack the channel up to its latest message and retire the unread
+diff --git a/src/tui/state/options.rs b/src/tui/state/options.rs
+index 335968c..1538fdd 100644
+--- a/src/tui/state/options.rs
++++ b/src/tui/state/options.rs
+@@ -189,6 +189,8 @@ impl DashboardState {
+         self.navigation.channels.collapsed_channel_categories =
+             options.collapsed_channel_categories.into_iter().collect();
+         self.navigation.channels.established_dms = options.established_dms.into_iter().collect();
++        self.navigation.channels.recent_channel_ids =
++            options.recent_channel_ids.into_iter().collect();
+         self.options.voice_participant_playback = options
+             .voice_participant_playback
+             .into_iter()
+@@ -253,6 +255,13 @@ impl DashboardState {
+             collapsed_server_folder_ids,
+             collapsed_server_folder_guilds,
+             established_dms,
++            recent_channel_ids: self
++                .navigation
++                .channels
++                .recent_channel_ids
++                .iter()
++                .copied()
++                .collect(),
+             voice_participant_playback: self.voice_participant_playback_options(),
+         }
+     }
+diff --git a/src/tui/state/popups/channel_switcher.rs b/src/tui/state/popups/channel_switcher.rs
+index caf04db..27a61cd 100644
+--- a/src/tui/state/popups/channel_switcher.rs
++++ b/src/tui/state/popups/channel_switcher.rs
+@@ -3,7 +3,10 @@ use std::collections::HashSet;
+ use crate::discord::{ChannelState, ChannelUnreadState};
+ use crate::tui::text_input::TextInputState;
+ use crate::{
+-    discord::ids::{Id, marker::GuildMarker},
++    discord::ids::{
++        Id,
++        marker::{ChannelMarker, GuildMarker},
++    },
+     tui::fuzzy::{FuzzyMatchQuality, FuzzyScore, fuzzy_name_match_score},
+ };
+ 
+@@ -293,13 +296,14 @@ impl DashboardState {
+             if !seen.insert(*channel_id) {
+                 continue;
+             }
+-            let Some(item) = base
++            let Some(mut item) = base
+                 .iter()
+                 .find(|item| item.channel_id() == Some(*channel_id))
++                .cloned()
++                .or_else(|| self.recent_channel_switcher_item(*channel_id))
+             else {
+                 continue;
+             };
+-            let mut item = item.clone();
+             let guild_name = match &item {
+                 ChannelSwitcherItem::Channel { guild_name, .. } => guild_name.clone(),
+                 ChannelSwitcherItem::Guild { .. } => None,
+@@ -314,6 +318,49 @@ impl DashboardState {
+         recent
+     }
+ 
++    /// Build a switcher row for a recently selected channel the base list does
++    /// not carry, e.g. a forum post. Search text includes the parent so a post
++    /// is findable by the forum it lives in as well as by its own name.
++    fn recent_channel_switcher_item(
++        &self,
++        channel_id: Id<ChannelMarker>,
++    ) -> Option<ChannelSwitcherItem> {
++        let channel = self.discord.cache.channel(channel_id)?;
++        if channel.is_category() {
++            return None;
++        }
++        let guild_id = channel.guild_id;
++        let guild_name = guild_id.and_then(|guild_id| self.guild_name(guild_id));
++        let group_label = guild_name.unwrap_or("Direct Messages");
++        let search_text = match channel
++            .parent_id
++            .and_then(|parent_id| self.discord.cache.channel(parent_id))
++        {
++            Some(parent) => format!("{group_label} / {} / {}", parent.name, channel.name),
++            None => format!("{group_label} / {}", channel.name),
++        };
++        let unread = self.sidebar_channel_unread(channel_id);
++        Some(ChannelSwitcherItem::Channel {
++            channel_id,
++            guild_name: guild_name.map(str::to_owned),
++            display: ChannelSwitcherDisplay {
++                group_label: group_label.to_owned(),
++                parent_label: guild_name.map(str::to_owned),
++                label: channel_switcher_channel_label(channel),
++                unread,
++                badge_state: channel_switcher_badge_state(
++                    guild_id,
++                    unread,
++                    self.channel_unread_message_count(channel_id),
++                ),
++                search_text,
++                depth: 0,
++                group_order: 0,
++                original_index: 0,
++            },
++        })
++    }
++
+     fn push_direct_message_switcher_items(&self, items: &mut Vec<ChannelSwitcherItem>) {
+         let mut channels = self.discord.cache.channels_for_guild(None);
+         channels.retain(|channel| !channel.is_category() && !channel.is_thread());
+diff --git a/src/tui/state/tests/channel_switcher.rs b/src/tui/state/tests/channel_switcher.rs
+index 6cc4708..4effefe 100644
+--- a/src/tui/state/tests/channel_switcher.rs
++++ b/src/tui/state/tests/channel_switcher.rs
+@@ -517,3 +517,110 @@ fn channel_switcher_query_edits_at_cursor() {
+     assert_eq!(view.query, "random");
+     assert_eq!(view.query_cursor, "ra".len());
+ }
++
++#[test]
++fn channel_switcher_lists_recently_opened_forum_post() {
++    let guild_id = Id::new(1);
++    let general_id = Id::new(11);
++    let forum_id = Id::new(20);
++    let post_id = Id::new(31);
++    let mut state = DashboardState::new();
++    state.push_event(guild_create_event(
++        guild_id,
++        "guild",
++        vec![
++            category_channel_info(guild_id, Id::new(10), "Text Channels", 0),
++            child_text_channel_info(guild_id, general_id, Id::new(10), "general", 0),
++            ChannelInfo {
++                guild_id: Some(guild_id),
++                position: Some(1),
++                name: "announcements".to_owned(),
++                ..ChannelInfo::test(forum_id, "forum")
++            },
++        ],
++    ));
++    state.confirm_selected_guild();
++    state.push_event(AppEvent::ThreadUpsert {
++        thread: ThreadGatewayInfo {
++            channel: thread_channel_info(guild_id, forum_id, post_id, "a post"),
++            current_user_member: None,
++        },
++        created: true,
++    });
++
++    state.open_channel_switcher();
++    assert!(
++        channel_switcher_items(&state)
++            .iter()
++            .all(|item| item.channel_id() != Some(post_id)),
++        "an unvisited forum post stays out of the switcher"
++    );
++    state.close_channel_switcher();
++
++    state.activate_channel(post_id);
++    state.activate_channel(general_id);
++    state.open_channel_switcher();
++
++    let post = channel_switcher_items(&state)
++        .into_iter()
++        .find(|item| item.channel_id() == Some(post_id))
++        .expect("a recently opened forum post should be listed");
++    let display = post.display();
++    assert_eq!(display.group_label, "Recent Channels");
++    assert_eq!(display.label, "🧵 a post");
++    assert_eq!(display.parent_label.as_deref(), Some("guild"));
++    assert_eq!(display.search_text, "guild / announcements / a post");
++
++    for ch in "announce".chars() {
++        state.push_channel_switcher_char(ch);
++    }
++    let filtered: Vec<Id<ChannelMarker>> = channel_switcher_items(&state)
++        .into_iter()
++        .filter_map(|item| item.channel_id())
++        .collect();
++    assert!(
++        filtered.contains(&post_id),
++        "the post's forum name should match"
++    );
++}
++
++#[test]
++fn channel_switcher_recent_channels_restore_from_saved_ui_state() {
++    use crate::config::{ComposerOptions, CredentialOptions, KeymapOptions};
++
++    let mut source = state_with_channel_tree();
++    source.activate_channel(Id::new(12));
++    source.activate_channel(Id::new(11));
++    let saved = source
++        .take_ui_state_save_request()
++        .expect("opening a channel should mark ui state dirty");
++    assert_eq!(saved.recent_channel_ids, vec![Id::new(11), Id::new(12)]);
++
++    let mut state = DashboardState::new_with_options(
++        DisplayOptions::default(),
++        ComposerOptions::default(),
++        CredentialOptions::default(),
++        NotificationOptions::default(),
++        VoiceOptions::default(),
++        KeymapOptions::default(),
++        saved,
++    );
++    state.push_event(guild_create_event(
++        Id::new(1),
++        "guild",
++        vec![
++            category_channel_info(Id::new(1), Id::new(10), "Text Channels", 0),
++            child_text_channel_info(Id::new(1), Id::new(11), Id::new(10), "general", 0),
++            child_text_channel_info(Id::new(1), Id::new(12), Id::new(10), "random", 1),
++        ],
++    ));
++    state.confirm_selected_guild();
++
++    state.open_channel_switcher();
++    let recent: Vec<Id<ChannelMarker>> = channel_switcher_items(&state)
++        .into_iter()
++        .filter(|item| item.display().group_label == "Recent Channels")
++        .filter_map(|item| item.channel_id())
++        .collect();
++    assert_eq!(recent, vec![Id::new(11), Id::new(12)]);
++}
