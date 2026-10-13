@@ -1,0 +1,276 @@
+commit 9ec5a8459ef60e606f0ba3fe07b8eced267f79e2
+Author: Mazin Fadl <mazen@illumed.net>
+Date:   Tue Oct 6 14:09:46 2026 -0400
+
+    feat(composer): add option to disable the typing indicator
+
+diff --git a/README.md b/README.md
+index 8867ed0..0a7ff93 100644
+--- a/README.md
++++ b/README.md
+@@ -404,6 +404,9 @@ hour_format_24 = true
+ # Send custom emoji your account cannot use directly as image links.
+ emojis_as_links = false
+ 
++# Broadcast a typing indicator to others while composing.
++send_typing_indicator = true
++
+ [reactions]
+ # Up to 10 unicode emoji pinned at the top of the reaction picker.
+ # When unset or empty, Concord uses the built-in quick reactions.
+diff --git a/src/config/options.rs b/src/config/options.rs
+index 22e1fac..238ddc7 100644
+--- a/src/config/options.rs
++++ b/src/config/options.rs
+@@ -33,6 +33,7 @@ pub struct DisplayOptions {
+ pub struct ComposerOptions {
+     pub emojis_as_links: bool,
+     pub ping_on_reply: bool,
++    pub send_typing_indicator: bool,
+ }
+ 
+ impl Default for ComposerOptions {
+@@ -40,6 +41,7 @@ impl Default for ComposerOptions {
+         Self {
+             emojis_as_links: false,
+             ping_on_reply: true,
++            send_typing_indicator: true,
+         }
+     }
+ }
+diff --git a/src/config/tests.rs b/src/config/tests.rs
+index 5fd5e0b..8c3e980 100644
+--- a/src/config/tests.rs
++++ b/src/config/tests.rs
+@@ -116,6 +116,10 @@ fn app_config_parses_partial_toml_with_defaults() {
+             "[composer]\nemojis_as_links = true\n",
+             app_options_with(|options| options.composer.emojis_as_links = true),
+         ),
++        (
++            "[composer]\nsend_typing_indicator = false\n",
++            app_options_with(|options| options.composer.send_typing_indicator = false),
++        ),
+         (
+             "[credentials]\nstore = \"plain\"\n",
+             app_options_with(|options| options.credentials.store = CredentialStoreMode::Plain),
+@@ -652,6 +656,7 @@ fn options_save_and_load_round_trip() {
+         composer: ComposerOptions {
+             emojis_as_links: true,
+             ping_on_reply: false,
++            send_typing_indicator: false,
+         },
+         reactions: Default::default(),
+         credentials: CredentialOptions {
+diff --git a/src/tui/input/tests/options.rs b/src/tui/input/tests/options.rs
+index 92bbece..7e77a77 100644
+--- a/src/tui/input/tests/options.rs
++++ b/src/tui/input/tests/options.rs
+@@ -311,6 +311,40 @@ fn options_popup_sequences_own_continuations_then_restore_fixed_shortcuts() {
+     );
+ }
+ 
++#[test]
++fn composer_options_toggle_send_typing_indicator() {
++    let mut state = state_with_messages(1);
++
++    handle_key(&mut state, char_key(' '));
++    handle_key(&mut state, char_key('o'));
++    handle_key(&mut state, char_key('c'));
++
++    let items = state.display_option_items();
++    assert_eq!(items.len(), 2);
++    assert_eq!(items[0].label, "Emojis as links");
++    assert_eq!(items[1].label, "Send typing indicator");
++    assert!(items[1].enabled);
++
++    handle_key(&mut state, key(KeyCode::Down));
++    handle_key(&mut state, key(KeyCode::Enter));
++
++    assert!(!state.composer_options().send_typing_indicator);
++    assert_eq!(
++        state.take_options_save_request(),
++        Some(AppOptions {
++            display: state.display_options(),
++            composer: state.composer_options(),
++            reactions: Default::default(),
++            credentials: Default::default(),
++            notifications: state.notification_options(),
++            voice: state.voice_options(),
++            presence: Default::default(),
++            translation: Default::default(),
++            klipy: Default::default(),
++        })
++    );
++}
++
+ #[test]
+ fn voice_options_enable_push_to_talk_and_apply_shortcut_without_restart() {
+     let mut state = state_with_keymap(KeymapOptions {
+diff --git a/src/tui/state/composer/state.rs b/src/tui/state/composer/state.rs
+index ee28d0b..87a6ec4 100644
+--- a/src/tui/state/composer/state.rs
++++ b/src/tui/state/composer/state.rs
+@@ -745,6 +745,9 @@ impl DashboardState {
+         if self.composer.edit_target_message.is_some() {
+             return None;
+         }
++        if !self.options.composer_options.send_typing_indicator {
++            return None;
++        }
+         let channel_id = self.selected_channel_id()?;
+         let due = match self.composer.last_typing_sent {
+             Some((last_channel, at)) if last_channel == channel_id => {
+diff --git a/src/tui/state/popups/options.rs b/src/tui/state/popups/options.rs
+index 8b85e45..3458219 100644
+--- a/src/tui/state/popups/options.rs
++++ b/src/tui/state/popups/options.rs
+@@ -9,7 +9,6 @@ use super::{
+ };
+ 
+ const DISPLAY_OPTION_COUNT: usize = DisplayOption::ALL.len();
+-const COMPOSER_OPTION_COUNT: usize = 1;
+ const NOTIFICATION_OPTION_COUNT: usize = 1;
+ const VOICE_OPTION_COUNT: usize = VoiceOption::ALL.len();
+ const OPTION_CATEGORY_COUNT: usize = 4;
+@@ -47,6 +46,24 @@ impl DisplayOption {
+     }
+ }
+ 
++/// A row of the composer options popup.
++///
++/// `ALL` is the single source of on-screen order: the row list is built by
++/// mapping over it, and every selection index is resolved through it.
++#[derive(Clone, Copy, Eq, PartialEq)]
++enum ComposerOption {
++    EmojisAsLinks,
++    SendTypingIndicator,
++}
++
++impl ComposerOption {
++    const ALL: [Self; 2] = [Self::EmojisAsLinks, Self::SendTypingIndicator];
++
++    fn at(index: usize) -> Option<Self> {
++        Self::ALL.get(index).copied()
++    }
++}
++
+ /// A row of the voice options popup.
+ ///
+ /// `ALL` is the single source of on-screen order: the row list is built by
+@@ -180,7 +197,7 @@ impl DashboardState {
+         match self.popups.options_popup().and_then(|popup| popup.category) {
+             None => OPTION_CATEGORY_COUNT,
+             Some(OptionsCategory::Display) => DISPLAY_OPTION_COUNT,
+-            Some(OptionsCategory::Composer) => COMPOSER_OPTION_COUNT,
++            Some(OptionsCategory::Composer) => ComposerOption::ALL.len(),
+             Some(OptionsCategory::Notifications) => NOTIFICATION_OPTION_COUNT,
+             Some(OptionsCategory::Voice) => VOICE_OPTION_COUNT,
+         }
+@@ -339,15 +356,32 @@ impl DashboardState {
+     }
+ 
+     fn display_option_items_for_composer(&self) -> Vec<DisplayOptionItem> {
++        ComposerOption::ALL
++            .iter()
++            .map(|option| self.composer_option_item(*option))
++            .collect()
++    }
++
++    fn composer_option_item(&self, option: ComposerOption) -> DisplayOptionItem {
+         let options = self.options.composer_options;
+-        vec![DisplayOptionItem {
+-            label: "Emojis as links",
+-            enabled: options.emojis_as_links,
+-            value: None,
+-            gauge: None,
+-            effective: options.emojis_as_links,
+-            description: "Sends unavailable emojis as a link instead.",
+-        }]
++        match option {
++            ComposerOption::EmojisAsLinks => DisplayOptionItem {
++                label: "Emojis as links",
++                enabled: options.emojis_as_links,
++                value: None,
++                gauge: None,
++                effective: options.emojis_as_links,
++                description: "Sends unavailable emojis as a link instead.",
++            },
++            ComposerOption::SendTypingIndicator => DisplayOptionItem {
++                label: "Send typing indicator",
++                enabled: options.send_typing_indicator,
++                value: None,
++                gauge: None,
++                effective: options.send_typing_indicator,
++                description: "Show others a typing indicator while you compose.",
++            },
++        }
+     }
+ 
+     fn display_option_items_for_notifications(&self) -> Vec<DisplayOptionItem> {
+@@ -518,9 +552,11 @@ impl DashboardState {
+                 };
+                 self.toggle_display_option(option);
+             }
+-            OptionsCategory::Composer if selected == 0 => {
+-                self.options.composer_options.emojis_as_links =
+-                    !self.options.composer_options.emojis_as_links
++            OptionsCategory::Composer => {
++                let Some(option) = ComposerOption::at(selected) else {
++                    return;
++                };
++                self.toggle_composer_option(option);
+             }
+             OptionsCategory::Notifications if selected == 0 => {
+                 self.options.notification_options.desktop_notifications =
+@@ -534,6 +570,16 @@ impl DashboardState {
+         self.mark_options_changed();
+     }
+ 
++    fn toggle_composer_option(&mut self, option: ComposerOption) {
++        let options = &mut self.options.composer_options;
++        match option {
++            ComposerOption::EmojisAsLinks => options.emojis_as_links = !options.emojis_as_links,
++            ComposerOption::SendTypingIndicator => {
++                options.send_typing_indicator = !options.send_typing_indicator
++            }
++        }
++    }
++
+     fn toggle_display_option(&mut self, option: DisplayOption) {
+         let options = &mut self.options.display_options;
+         match option {
+diff --git a/src/tui/state/tests/composer.rs b/src/tui/state/tests/composer.rs
+index 6f0f4bd..08fa734 100644
+--- a/src/tui/state/tests/composer.rs
++++ b/src/tui/state/tests/composer.rs
+@@ -3043,6 +3043,30 @@ fn composer_typing_indicator_throttles_and_resends() {
+     );
+ }
+ 
++#[test]
++fn disabled_typing_indicator_suppresses_composer_typing() {
++    use std::time::{Duration, Instant};
++
++    let mut state = state_with_writable_channel();
++    state.start_composer();
++    state.options.composer_options.send_typing_indicator = false;
++
++    let start = Instant::now();
++    assert_eq!(state.note_composer_typing_at(start), None);
++    assert_eq!(
++        state.note_composer_typing_at(start + Duration::from_secs(8)),
++        None
++    );
++
++    state.options.composer_options.send_typing_indicator = true;
++    assert_eq!(
++        state.note_composer_typing_at(start + Duration::from_secs(16)),
++        Some(AppCommand::TriggerTyping {
++            channel_id: Id::new(2),
++        })
++    );
++}
++
+ #[test]
+ fn foreign_emoji_fall_back_to_links_without_nitro_when_enabled() {
+     let cases = [
