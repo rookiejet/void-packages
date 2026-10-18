@@ -1,0 +1,16 @@
+# Template file for 'youtube-tui'
+pkgname=youtube-tui
+version=0.9.4
+revision=1
+build_style=cargo
+configure_args="--all-features"
+hostmakedepends="pkg-config"
+makedepends="libsixel-devel libxcb-devel mpv-devel"
+depends="mpv xdg-utils yt-dlp"
+short_desc="Terminal UI frontend for browsing YouTube"
+maintainer="rookiejet <void@illumed.net>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/siriusmart/youtube-tui"
+changelog="https://github.com/siriusmart/youtube-tui/releases"
+distfiles="https://github.com/siriusmart/youtube-tui/archive/v${version}.tar.gz"
+checksum=ac31c7c0600c47509384df27f1af2c4ec6644de988a703ca13856b147c675934
