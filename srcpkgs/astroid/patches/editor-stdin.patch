@@ -1,0 +1,48 @@
+commit cf34efe7b02ba89c4bf94032df8a175b6b12574d
+Author: Mazin Fadl <mazen@illumed.net>
+Date:   Mon Sep 21 00:25:14 2026 -0400
+
+    em: ex: do not give the external editor a pipe on stdin
+    
+    External::start() spawned the editor with an explicitly requested stdin
+    pipe. We never write to it and never close it, so an editor that reads
+    stdin -- or forwards it to a child, as neovide does with neovim -- blocks
+    in read() until astroid exits. With neovide this is not even visible as a
+    hang: neovim never finishes starting up, so neovide never gets a first
+    frame, never creates its window, and the window only appears once astroid
+    is terminated and the pipe finally sees EOF.
+    
+    Leave stdin_pipe_out as nullptr, which makes GLib attach /dev/null to the
+    editor's stdin (documented default of g_spawn_async_with_pipes, as well as
+    of Glib::spawn_async_with_pipes). Nothing reads the fd afterwards, so the
+    now-unused External::stdin member goes away too.
+
+diff --git a/src/modes/editor/external.cc b/src/modes/editor/external.cc
+index 6853d4a..6a3ce66 100644
+--- a/src/modes/editor/external.cc
++++ b/src/modes/editor/external.cc
+@@ -41,7 +41,11 @@ namespace Astroid {
+                         Glib::SPAWN_SEARCH_PATH | Glib::SPAWN_DO_NOT_REAP_CHILD,
+                         sigc::slot <void> (),
+                         &pid,
+-                        &stdin,
++                        /* Do not ask for a pipe on the editor's stdin: we never write
++                         * to it, and an editor that reads stdin (or forwards it to a
++                         * child) blocks until astroid exits. Leaving this nullptr makes
++                         * GLib attach /dev/null to the editor's stdin. */
++                        nullptr,
+                         &stdout,
+                         &stderr
+                         );
+diff --git a/src/modes/editor/external.hh b/src/modes/editor/external.hh
+index 676fcff..fd9c633 100644
+--- a/src/modes/editor/external.hh
++++ b/src/modes/editor/external.hh
+@@ -29,7 +29,6 @@ namespace Astroid {
+       bool editor_started = false;
+ 
+       int pid;
+-      int stdin;
+       int stdout;
+       int stderr;
+       refptr<Glib::IOChannel> ch_stdout;
