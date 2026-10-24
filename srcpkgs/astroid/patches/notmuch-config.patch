@@ -1,0 +1,421 @@
+commit 238ef9f33cf3df9b390fad13959e48410ec26947
+Author: Mazin Fadl <mazen@illumed.net>
+Date:   Sat Oct 24 13:31:18 2026 -0400
+
+    db: use notmuch_database_open_with_config()
+    
+    notmuch_database_open() is deprecated since libnotmuch 5.4 (notmuch 0.32).
+    Open the database with notmuch_database_open_with_config(), passing the
+    notmuch config path astroid resolved, so the library's configuration matches
+    the ptree astroid reads its settings from.
+    
+    Database location discovery now mirrors the documented notmuch search order
+    (notmuch-config(5), DATABASE LOCATION): NOTMUCH_DATABASE, database.path,
+    $XDG_DATA_HOME/notmuch/$PROFILE, $MAILDIR, $HOME/mail. A location is
+    accepted in either on-disk form: the database directory itself (xapian/ — the
+    XDG profile layout, and database.path when database.mail_root is set) or a
+    mail root (.notmuch/xapian). database.mail_root is the mail store root, not a
+    database location.
+    
+    Open failures now log notmuch's error message and the path tried.
+    
+    cmake requires notmuch_database_open_with_config (libnotmuch >= 5.4) at
+    configure time. The tests require NOTMUCH_CONFIG (set by tests/run_test.sh)
+    instead of guessing a config path.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8cb8700..21a959f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -87,6 +87,11 @@ find_package( Notmuch REQUIRED )
+ if (Notmuch_INDEX_FILE_API)
+   add_definitions ( -DHAVE_NOTMUCH_INDEX_FILE )
+ endif()
++if (NOT Notmuch_OPEN_WITH_CONFIG_API)
++  message (FATAL_ERROR
++    "notmuch >= 0.32 (libnotmuch >= 5.4) is required: "
++    "notmuch_database_open_with_config() was not found in ${Notmuch_LIBRARY}")
++endif()
+ 
+ find_package ( PkgConfig REQUIRED )
+ 
+diff --git a/cmake/FindNotmuch.cmake b/cmake/FindNotmuch.cmake
+index ae147e1..2947310 100644
+--- a/cmake/FindNotmuch.cmake
++++ b/cmake/FindNotmuch.cmake
+@@ -7,6 +7,7 @@
+ #  Notmuch_LIBRARIES      - link these to use Notmuch
+ #  Notmuch_GMIME_VERSION  - the GMime version notmuch was linked against
+ #  Notmuch_INDEX_FILE_API - whether Notmuch has the notmuch_database_index_file() API
++#  Notmuch_OPEN_WITH_CONFIG_API - whether Notmuch has the notmuch_database_open_with_config() API
+ 
+ include (LibFindMacros)
+ 
+@@ -67,6 +68,9 @@ set (CMAKE_REQUIRED_INCLUDES ${Notmuch_INCLUDE_DIR})
+ set (CMAKE_REQUIRED_LIBRARIES ${Notmuch_LIBRARY})
+ check_symbol_exists (notmuch_database_index_file notmuch.h Notmuch_INDEX_FILE_API)
+ 
++# notmuch_database_open_with_config() API presence (libnotmuch >= 5.4 / notmuch 0.32)
++check_symbol_exists (notmuch_database_open_with_config notmuch.h Notmuch_OPEN_WITH_CONFIG_API)
++
+ # GMime version notmuch was linked against
+ include (GetPrerequisites)
+ GET_PREREQUISITES(${Notmuch_LIBRARY} _notmuch_prerequisites 0 0 "" "")
+diff --git a/src/astroid.hh b/src/astroid.hh
+index 3e945e9..cf5ad33 100644
+--- a/src/astroid.hh
++++ b/src/astroid.hh
+@@ -54,6 +54,7 @@ namespace Astroid {
+ 
+       const boost::property_tree::ptree& config (const std::string& path=std::string()) const;
+       const boost::property_tree::ptree& notmuch_config () const;
++      Config* get_config () const { return m_config; }
+       const StandardPaths& standard_paths() const;
+             RuntimePaths& runtime_paths() const;
+       bool  has_notmuch_config ();
+diff --git a/src/config.cc b/src/config.cc
+index fcecfab..40ccdf6 100644
+--- a/src/config.cc
++++ b/src/config.cc
+@@ -377,12 +377,11 @@ namespace Astroid {
+     run_paths.attach_dir = std_paths.attach_dir;
+ 
+     /* read notmuch config */
+-    bfs::path notmuch_config_path;
+     char * notmuch_config_env = getenv ("NOTMUCH_CONFIG");
+     if (notmuch_config_env) {
+       notmuch_config_path = Utils::expand(bfs::path (notmuch_config_env));
+     } else {
+-      notmuch_config_path = Utils::expand(bfs::path (config.get<string>("astroid.notmuch_config")));
++      notmuch_config_path = Utils::expand(bfs::path (config.get<std::string>("astroid.notmuch_config")));
+     }
+ 
+     if (is_regular_file (notmuch_config_path)) {
+diff --git a/src/config.hh b/src/config.hh
+index 6c3c5fd..cc9ad21 100644
+--- a/src/config.hh
++++ b/src/config.hh
+@@ -43,6 +43,8 @@ namespace Astroid {
+        * XDG_RUNTIME_HOME : none
+        */
+ 
++      const bfs::path &get_notmuch_config_path() const { return notmuch_config_path; }
++
+       bool test;
+ 
+       StandardPaths std_paths;
+@@ -61,6 +63,8 @@ namespace Astroid {
+       const int CONFIG_VERSION = 11;
+ 
+     private:
++      bfs::path notmuch_config_path;
++
+       ptree setup_default_config (bool);
+       void  setup_default_initial_config (ptree &conf, bool accounts = true, bool startup = true);
+ 
+diff --git a/src/db.cc b/src/db.cc
+index efba7f9..5156383 100644
+--- a/src/db.cc
++++ b/src/db.cc
+@@ -2,6 +2,7 @@
+ # include <vector>
+ # include <algorithm>
+ # include <exception>
++# include <cstdlib>
+ # include <boost/filesystem.hpp>
+ 
+ # include <thread>
+@@ -38,6 +39,15 @@ namespace Astroid {
+ 
+   bfs::path Db::path_db;
+ 
++  /* a database location is either the database directory itself (contains
++   * xapian: the XDG profile layout, and database.path when
++   * database.mail_root is set) or the mail root (contains .notmuch/xapian) */
++  static bool has_database (const bfs::path& candidate) {
++    boost::system::error_code ec;
++    return bfs::is_directory (bfs::status (candidate / "xapian", ec)) ||
++           bfs::is_directory (bfs::status (candidate / ".notmuch" / "xapian", ec));
++  }
++
+   void Db::init () {
+     const ptree& config = astroid->notmuch_config ();
+ 
+@@ -51,17 +61,64 @@ namespace Astroid {
+       throw database_error ("db: error: no notmuch config file found.");
+     }
+ 
+-    ustring db_path;
++    /* mirror the notmuch database search order (notmuch-config(5),
++     * DATABASE LOCATION):
++     *
++     *   1. NOTMUCH_DATABASE
++     *   2. database.path
++     *   3. $XDG_DATA_HOME/notmuch/$PROFILE
++     *   4. $MAILDIR
++     *   5. $HOME/mail
++     *
++     * database.mail_root is not a database location: it is the mail store
++     * root, and only selects the on-disk layout of database.path.
++     */
++    bfs::path db_path;
++    std::vector<bfs::path> candidates;
++
++    auto add_candidate = [&] (const bfs::path& p) {
++      bfs::path t = Utils::expand (p);
++      if (t.empty ()) return;
++      t = absolute (t);
++      if (has_database (t)) {
++        LOG (debug) << "db: found database at: " << t.string ();
++        candidates.push_back (t);
++      } else {
++        LOG (debug) << "db: no database at: " << t.string ();
++      }
++    };
++
++    if (const char * e = getenv ("NOTMUCH_DATABASE"))
++      add_candidate (bfs::path (e));
++
+     try {
+-      db_path = ustring (config.get<string> ("database.path"));
+-    } catch (const boost::property_tree::ptree_bad_path &ex) {
+-      throw database_error ("db: error: no database path specified");
++      std::string s = config.get<std::string> ("database.path");
++      if (!s.empty ()) {
++        add_candidate (bfs::path (s));
++      } else {
++        LOG (warn) << "db: no database.path in notmuch config.";
++      }
++    } catch (const boost::property_tree::ptree_error &) {
++      LOG (warn) << "db: no database.path in notmuch config.";
+     }
+ 
+-    LOG (info) << "db path: " << db_path;
++    bfs::path xdg_data = getenv ("XDG_DATA_HOME") ? bfs::path (getenv ("XDG_DATA_HOME"))
++                                                  : bfs::path (home) / ".local" / "share";
++    const char * profile_env = getenv ("NOTMUCH_PROFILE");
++    std::string profile = profile_env ? profile_env : "default";
++    add_candidate (xdg_data / "notmuch" / profile);
++
++    if (const char * maildir = getenv ("MAILDIR"))
++      add_candidate (bfs::path (maildir));
++
++    add_candidate (bfs::path (home) / "mail");
+ 
+-    path_db = Utils::expand (path (db_path));
+-    path_db = absolute (path_db);
++    if (candidates.empty ())
++      throw database_error ("db: error: notmuch database not found");
++
++    db_path = candidates.front ();
++    LOG (info) << "db path: " << db_path.string ();
++    path_db = db_path;
+ 
+     ustring excluded_tags_s;
+     try {
+@@ -121,15 +178,23 @@ namespace Astroid {
+ 
+     int time = 0;
+ 
++    char * errmsg = nullptr;
++
+     /* in case a long notmuch new or similar operation is running
+      * we won't be able to get read-write access to the db untill
+      * it is done.
+      */
+     do {
+-      s = notmuch_database_open (
++      free (errmsg);
++      errmsg = nullptr;
++
++      s = notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-        &nm_db);
++        astroid->get_config()->get_notmuch_config_path().c_str(),
++        nullptr,
++        &nm_db,
++        &errmsg);
+ 
+       if (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) {
+         LOG (error) << "db: error: could not open db r/w, waited " <<
+@@ -146,13 +211,17 @@ namespace Astroid {
+     } while (block && (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) && (time <= db_open_timeout));
+ 
+     if (s != NOTMUCH_STATUS_SUCCESS) {
+-      LOG (error) << "db: error: failed opening database for writing, have you configured the notmuch database path correctly?";
++      LOG (error) << "db: error: failed opening database for writing at "
++                  << path_db.string () << ": "
++                  << (errmsg ? errmsg : notmuch_status_to_string (s));
++      free (errmsg);
+ 
+       release_rw_lock (rw_lock);
+       throw database_error ("failed to open database for writing");
+ 
+       return false;
+     }
++    free (errmsg);
+ 
+     return true;
+   }
+@@ -164,11 +233,19 @@ namespace Astroid {
+ 
+     int time = 0;
+ 
++    char * errmsg = nullptr;
++
+     do {
+-      s = notmuch_database_open (
++      free (errmsg);
++      errmsg = nullptr;
++
++      s = notmuch_database_open_with_config (
+           path_db.c_str(),
+           notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-          &nm_db);
++          astroid->get_config()->get_notmuch_config_path().c_str(),
++          nullptr,
++          &nm_db,
++          &errmsg);
+ 
+       if (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) {
+         LOG (error) << "db: error: could not open db r/o, waited " <<
+@@ -184,13 +261,17 @@ namespace Astroid {
+     } while (block && (s == NOTMUCH_STATUS_XAPIAN_EXCEPTION) && (time <= db_open_timeout));
+ 
+     if (s != NOTMUCH_STATUS_SUCCESS) {
+-      LOG (error) << "db: error: failed opening database for reading, have you configured the notmuch database path correctly?";
++      LOG (error) << "db: error: failed opening database for reading at "
++                  << path_db.string () << ": "
++                  << (errmsg ? errmsg : notmuch_status_to_string (s));
++      free (errmsg);
+ 
+       release_ro_lock ();
+       throw database_error ("failed to open database (in read-only mode)");
+ 
+       return false;
+     }
++    free (errmsg);
+ 
+     return true;
+   }
+@@ -1198,4 +1279,3 @@ namespace Astroid {
+ 
+ 
+ }
+-
+diff --git a/tests/test_notmuch.cc b/tests/test_notmuch.cc
+index b908ebc..fdb7eb1 100644
+--- a/tests/test_notmuch.cc
++++ b/tests/test_notmuch.cc
+@@ -14,6 +14,15 @@ namespace bfs = boost::filesystem;
+ using std::cout;
+ using std::endl;
+ 
++/* tests are run through tests/run_test.sh, which sets NOTMUCH_CONFIG to the
++ * generated test config */
++static const char * test_notmuch_config () {
++  const char * c = getenv ("NOTMUCH_CONFIG");
++  BOOST_REQUIRE_MESSAGE (c != NULL,
++      "NOTMUCH_CONFIG is not set, run the tests through tests/run_test.sh");
++  return c;
++}
++
+ BOOST_AUTO_TEST_SUITE(Notmuch)
+ 
+   BOOST_AUTO_TEST_CASE(read_all_threads)
+@@ -24,10 +33,13 @@ BOOST_AUTO_TEST_SUITE(Notmuch)
+     notmuch_database_t * nm_db;
+ 
+     notmuch_status_t s =
+-      notmuch_database_open (
++      notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-        &nm_db);
++        test_notmuch_config (),
++        nullptr,
++        &nm_db,
++        nullptr);
+ 
+ 
+     BOOST_CHECK (s == NOTMUCH_STATUS_SUCCESS);
+@@ -76,10 +88,13 @@ BOOST_AUTO_TEST_SUITE(Notmuch)
+     notmuch_database_t * nm_db;
+ 
+     notmuch_status_t s =
+-      notmuch_database_open (
++      notmuch_database_open_with_config (
+         path_db.c_str(),
+         notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-        &nm_db);
++        test_notmuch_config (),
++        nullptr,
++        &nm_db,
++        nullptr);
+ 
+ 
+     BOOST_CHECK (s == NOTMUCH_STATUS_SUCCESS);
+diff --git a/tests/test_notmuch_standalone.cc b/tests/test_notmuch_standalone.cc
+index 538404b..f55f954 100644
+--- a/tests/test_notmuch_standalone.cc
++++ b/tests/test_notmuch_standalone.cc
+@@ -20,15 +20,24 @@ using std::cout;
+ using std::endl;
+ 
+ int main () {
++  const char * nm_config = getenv ("NOTMUCH_CONFIG");
++  if (nm_config == NULL) {
++    std::cerr << "NOTMUCH_CONFIG is not set, run the tests through tests/run_test.sh" << std::endl;
++    return 1;
++  }
++
+   char * path_db = realpath ("./tests/mail/test_mail", NULL);
+ 
+   notmuch_database_t * nm_db;
+ 
+   notmuch_status_t s =
+-    notmuch_database_open (
++    notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_ONLY,
+-      &nm_db);
++      nm_config,
++      nullptr,
++      &nm_db,
++      nullptr);
+ 
+   (void) (s);
+ 
+@@ -108,10 +117,13 @@ int main () {
+    * continue loading the original query */
+   notmuch_database_t * nm_db2;
+ 
+-  s = notmuch_database_open (
++  s = notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-      &nm_db2);
++      nm_config,
++      nullptr,
++      &nm_db2,
++      nullptr);
+ 
+ 
+   char qry_s[256];
+@@ -152,10 +164,13 @@ int main () {
+   notmuch_database_close (nm_db2);
+ 
+   /* re-add unread tag */
+-  s = notmuch_database_open (
++  s = notmuch_database_open_with_config (
+       path_db,
+       notmuch_database_mode_t::NOTMUCH_DATABASE_MODE_READ_WRITE,
+-      &nm_db2);
++      nm_config,
++      nullptr,
++      &nm_db2,
++      nullptr);
+ 
+ 
+ 
