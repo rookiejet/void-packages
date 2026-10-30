@@ -1,0 +1,209 @@
+diff --git a/src/modes/thread_view/thread_view.cc b/src/modes/thread_view/thread_view.cc
+index 3dca442..d4be518 100644
+--- a/src/modes/thread_view/thread_view.cc
++++ b/src/modes/thread_view/thread_view.cc
+@@ -127,6 +127,10 @@ namespace Astroid {
+         G_CALLBACK(ThreadView_decide_policy),
+         (gpointer) this);
+ 
++    g_signal_connect (webview, "create",
++        G_CALLBACK(ThreadView_create),
++        (gpointer) this);
++
+     load_html ();
+ 
+     register_keys ();
+@@ -177,7 +181,14 @@ namespace Astroid {
+ 
+     switch (decision_type) {
+       case WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION: // navigate to {{{
++      case WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION: // target="_blank" links arrive here
+         {
++          /* Links with target="_blank" (most HTML newsletters) trigger a
++           * new-window policy decision instead of a plain navigation action.
++           * Astroid does not create extra web views, so route a genuine
++           * link click through the same scheme dispatcher as a normal
++           * navigation; window.open() requests (navigation type OTHER)
++           * are still ignored below. */
+           WebKitNavigationPolicyDecision * navigation_decision = WEBKIT_NAVIGATION_POLICY_DECISION (decision);
+           WebKitNavigationAction * nav_action = webkit_navigation_policy_decision_get_navigation_action (navigation_decision);
+ 
+@@ -189,33 +200,17 @@ namespace Astroid {
+             const gchar * uri_c = webkit_uri_request_get_uri (
+                 webkit_navigation_action_get_request (nav_action));
+ 
++            navigate_uri (uri_c == nullptr ? ustring () : ustring (uri_c));
+ 
+-            ustring uri (uri_c);
+-            LOG (info) << "tv: navigating to: " << uri;
+-
+-            ustring scheme = Glib::uri_parse_scheme (uri);
+-
+-            if (scheme == "mailto") {
+-              main_window->add_mode (new EditMessage (main_window, uri));
+-
+-            } else if (scheme == "id" || scheme == "mid" ) {
+-              main_window->add_mode (new ThreadIndex (main_window, uri));
+-
+-            } else if (scheme == "http" || scheme == "https" || scheme == "ftp") {
+-              open_link (uri);
+-
+-            } else {
+-
+-              LOG (error) << "tv: unknown uri scheme. not opening.";
+-            }
++          } else if (decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
++            /* Not a user click: window.open() and friends. Astroid never
++             * creates extra web views, so ignore explicitly instead of
++             * letting the default decision spin up a phantom one. */
++            webkit_policy_decision_ignore (decision);
+           }
+         } // }}}
+         break;
+ 
+-      case WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION:
+-        webkit_policy_decision_ignore (decision);
+-        break;
+-
+       default:
+         webkit_policy_decision_ignore (decision);
+         return true; // stop event
+@@ -224,6 +219,55 @@ namespace Astroid {
+     return true; // stop event
+   }
+ 
++  /* new web view requests: context menu "Open Link" / "Open Link in New
++   * Window" on a link with target="_blank" arrives only here, without any
++   * policy decision being emitted. Astroid never creates extra web views;
++   * route the requested uri through the usual scheme dispatcher and refuse
++   * the view. */
++  extern "C" WebKitWebView * ThreadView_create (
++      WebKitWebView * w,
++      WebKitNavigationAction * nav_action,
++      gpointer user_data) {
++
++    return ((ThreadView *) user_data)->create (w, nav_action);
++  }
++
++  WebKitWebView * ThreadView::create (
++      WebKitWebView * /* w */,
++      WebKitNavigationAction * nav_action)
++  {
++    const gchar * uri_c = webkit_uri_request_get_uri (
++        webkit_navigation_action_get_request (nav_action));
++
++    if (uri_c != nullptr && *uri_c != '\0') {
++      navigate_uri (ustring (uri_c));
++    } else {
++      LOG (error) << "tv: create request without uri. ignoring.";
++    }
++
++    return nullptr;
++  }
++
++  void ThreadView::navigate_uri (ustring uri) {
++    LOG (info) << "tv: navigating to: " << uri;
++
++    ustring scheme = Glib::uri_parse_scheme (uri);
++
++    if (scheme == "mailto") {
++      main_window->add_mode (new EditMessage (main_window, uri));
++
++    } else if (scheme == "id" || scheme == "mid" ) {
++      main_window->add_mode (new ThreadIndex (main_window, uri));
++
++    } else if (scheme == "http" || scheme == "https" || scheme == "ftp") {
++      open_link (uri);
++
++    } else {
++
++      LOG (error) << "tv: unknown uri scheme. not opening.";
++    }
++  }
++
+   void ThreadView::open_link (ustring uri) {
+     LOG (debug) << "tv: opening: " << uri;
+ 
+diff --git a/src/modes/thread_view/thread_view.hh b/src/modes/thread_view/thread_view.hh
+index b45a7f1..7611b13 100644
+--- a/src/modes/thread_view/thread_view.hh
++++ b/src/modes/thread_view/thread_view.hh
+@@ -36,6 +36,11 @@ namespace Astroid {
+       WebKitPolicyDecisionType decision_type,
+       gpointer user_data);
+ 
++  extern "C" WebKitWebView * ThreadView_create (
++      WebKitWebView * w,
++      WebKitNavigationAction * nav_action,
++      gpointer user_data);
++
+   class ThreadView : public Mode {
+     friend PageClient;
+ 
+@@ -71,6 +76,7 @@ namespace Astroid {
+ # endif
+ 
+       ustring open_external_link;
++      void    navigate_uri (ustring);
+       void    open_link (ustring);
+       void    do_open_link (ustring);
+ 
+@@ -196,6 +202,10 @@ namespace Astroid {
+           WebKitPolicyDecision * decision,
+           WebKitPolicyDecisionType decision_type);
+ 
++      WebKitWebView * create (
++          WebKitWebView * w,
++          WebKitNavigationAction * nav_action);
++
+       void grab_focus ();
+ 
+       /* mode */
+diff --git a/ui/thread-view.html b/ui/thread-view.html
+index 5546b87..f696029 100644
+--- a/ui/thread-view.html
++++ b/ui/thread-view.html
+@@ -62,8 +62,13 @@
+     embedded document cannot be accessed.
+     Do not add 'allow-scripts' to the sandbox attribute. This would allow the
+     document to execute scripts itself.
++    "allow-popups" is required for links with target="_blank" (most HTML
++    newsletters); without it the click is silently discarded before any
++    policy decision is even made. The new-window decision itself is resolved
++    by ThreadView::decide_policy, which opens such links externally and
++    never creates a web view, so no popup can actually appear.
+   -->
+-  <iframe class="body_iframe" sandbox="allow-same-origin" onload="handleLoadIframe(this);" srcdoc=""></iframe>
++  <iframe class="body_iframe" sandbox="allow-same-origin allow-popups" onload="handleLoadIframe(this);" srcdoc=""></iframe>
+ </div>
+ 
+ <script>
+@@ -86,6 +91,20 @@
+     iframe.height = iframe.contentWindow.document.body.scrollHeight;
+   }
+ 
++  function observeIframeBody(iframe) {
++    /* Re-size whenever the content changes size. Images enabled with C-i
++     * (thread_view.show_remote_images) are put into the DOM in place and
++     * load asynchronously long after the iframe load event, so the one-shot
++     * sizing above would leave the lower part of the message cut off. */
++    if (iframe._sizeObserver) iframe._sizeObserver.disconnect();
++    const body = iframe.contentWindow.document.body;
++    if (!body) return;
++    iframe._sizeObserver = new ResizeObserver(() => {
++      if (parseInt(iframe.height, 10) !== body.scrollHeight) sizeIframe(iframe);
++    });
++    iframe._sizeObserver.observe(body);
++  }
++
+   function getParentWithClass(element, c) {
+     p = element.parentElement;
+     while (p != document.body && !p.classList.contains(c)) {
+@@ -97,6 +116,7 @@
+ 
+   function handleLoadIframe(iframe) {
+     sizeIframe(iframe);
++    observeIframeBody(iframe);
+     const email = getParentWithClass(iframe, "email");
+     if (email != document.body)
+       onSetFocused(email, _ => sizeIframe(iframe));
